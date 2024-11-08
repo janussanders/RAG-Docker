@@ -28,10 +28,28 @@ echo "Starting comprehensive cleanup..."
 
 # More aggressive cleanup for macOS metadata and symlinks
 echo "Cleaning up macOS metadata and symlinks..."
+# Force remove the specific qdrant_storage symlink first
+rm -f "$PROJECT_DIR/._qdrant_storage"
+rm -f "$PROJECT_DIR/qdrant_storage/._*"
+
+# Clear all extended attributes recursively
+xattr -cr "$PROJECT_DIR" 2>/dev/null || true
+
+# Multiple methods to find and remove symlinks
+find "$PROJECT_DIR" -type l -delete
+find "$PROJECT_DIR" -lname '*' -delete
+find "$PROJECT_DIR" -xtype l -delete
+
+# Specific cleanup for macOS metadata
 find "$PROJECT_DIR" -name "._*" -exec rm -f {} \;
 find "$PROJECT_DIR" -name ".DS_Store" -exec rm -f {} \;
-xattr -cr "$PROJECT_DIR" 2>/dev/null || true  # Clear extended attributes
-success "Cleaned up macOS metadata"
+
+# Double-check for the problematic symlink
+if [ -L "$PROJECT_DIR/._qdrant_storage" ]; then
+    unlink "$PROJECT_DIR/._qdrant_storage" 2>/dev/null || rm -f "$PROJECT_DIR/._qdrant_storage"
+fi
+
+success "Cleaned up macOS metadata and symlinks"
 
 # Clean Docker artifacts
 echo "Cleaning Docker artifacts..."
