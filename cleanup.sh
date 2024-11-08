@@ -119,6 +119,26 @@ docker builder prune -f  # Add this line to clean build cache
 
 success "Cleaned build context"
 
+echo "Checking for and cleaning up ports..."
+# Function to kill process using a port
+kill_port() {
+    local port=$1
+    local pid=$(lsof -ti :$port)
+    if [ ! -z "$pid" ]; then
+        echo "Killing process using port $port (PID: $pid)"
+        kill -9 $pid
+    fi
+}
+
+# Check and clean up Qdrant ports
+kill_port 6333
+kill_port 6334
+
+# Give system time to release ports
+sleep 2
+
+success "Cleaned up ports"
+
 echo -e "\n${GREEN}Cleanup complete!${NC}"
 echo "You can now run:"
 echo "1. ./setup.sh to create a new environment"
