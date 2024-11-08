@@ -22,12 +22,13 @@ warn() {
 }
 
 PROJECT_DIR="/Volumes/Algernon/RAG/RAG-Docker"
+DOCKER_COMPOSE="$PROJECT_DIR/docker/docker-compose.yml"
 
 echo "Starting comprehensive cleanup..."
 
 # Stop running containers and remove Docker artifacts
 echo "Cleaning Docker artifacts..."
-docker-compose down 2>/dev/null
+docker-compose -f "$DOCKER_COMPOSE" down 2>/dev/null
 docker container prune -f
 docker volume prune -f
 docker image prune -f

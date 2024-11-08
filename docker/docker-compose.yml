@@ -6,7 +6,9 @@ services:
       - "6333:6333"
       - "6334:6334"
     volumes:
-      - qdrant_storage:/qdrant/storage
+      - ../src:/app/src
+      - ../tests:/app/tests
+      - ../qdrant_storage:/qdrant/storage
     environment:
       - QDRANT_ALLOW_RESET=true
       - QDRANT_STORAGE_PATH=/qdrant/storage
