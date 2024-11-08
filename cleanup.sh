@@ -26,12 +26,20 @@ DOCKER_COMPOSE="$PROJECT_DIR/docker/docker-compose.yml"
 
 echo "Starting comprehensive cleanup..."
 
-# Stop running containers and remove Docker artifacts
+# More aggressive cleanup for macOS metadata and symlinks
+echo "Cleaning up macOS metadata and symlinks..."
+find "$PROJECT_DIR" -name "._*" -exec rm -f {} \;
+find "$PROJECT_DIR" -name ".DS_Store" -exec rm -f {} \;
+xattr -cr "$PROJECT_DIR" 2>/dev/null || true  # Clear extended attributes
+success "Cleaned up macOS metadata"
+
+# Clean Docker artifacts
 echo "Cleaning Docker artifacts..."
-docker-compose -f "$DOCKER_COMPOSE" down 2>/dev/null
+docker-compose -f "$DOCKER_COMPOSE" down --volumes --remove-orphans 2>/dev/null
 docker container prune -f
 docker volume prune -f
 docker image prune -f
+docker builder prune -f  # Add this line to clean build cache
 success "Cleaned Docker artifacts"
 
 # Deactivate virtual environment if active
@@ -92,6 +100,44 @@ rm -rf "$PROJECT_DIR/qdrant_storage/*"
 mkdir -p "$PROJECT_DIR/qdrant_storage"
 chmod 755 "$PROJECT_DIR/qdrant_storage"
 success "Cleaned Qdrant storage"
+
+# Clean build context
+echo "Cleaning build context..."
+# Stop all containers first
+docker-compose -f "$DOCKER_COMPOSE" down --volumes --remove-orphans 2>/dev/null
+
+# Remove problematic directories
+rm -rf "$PROJECT_DIR/qdrant_storage/aliases" 2>/dev/null
+rm -rf "$PROJECT_DIR/qdrant_storage/collections" 2>/dev/null
+rm -rf "$PROJECT_DIR/qdrant_storage/snapshots" 2>/dev/null
+
+# Clean Docker artifacts
+docker container prune -f
+docker volume prune -f
+docker image prune -f
+docker builder prune -f  # Add this line to clean build cache
+
+success "Cleaned build context"
+
+echo "Checking for and cleaning up ports..."
+# Function to kill process using a port
+kill_port() {
+    local port=$1
+    local pid=$(lsof -ti :$port)
+    if [ ! -z "$pid" ]; then
+        echo "Killing process using port $port (PID: $pid)"
+        kill -9 $pid
+    fi
+}
+
+# Check and clean up Qdrant ports
+kill_port 6333
+kill_port 6334
+
+# Give system time to release ports
+sleep 2
+
+success "Cleaned up ports"
 
 echo -e "\n${GREEN}Cleanup complete!${NC}"
 echo "You can now run:"

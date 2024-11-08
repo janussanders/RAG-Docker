@@ -20,9 +20,3 @@ echo "✓ Environment activated with Apple Silicon optimizations"
 echo "✓ Metal Performance Shaders (MPS) enabled"
 echo "✓ UTF-8 encoding configured"
 echo "✓ Cache directories set"
-
-PROJECT_DIR="/Volumes/Algernon/RAG/RAG-Docker"
-DOCKER_COMPOSE="$PROJECT_DIR/docker/docker-compose.yml"
-
-# When running docker-compose commands
-docker-compose -f "$DOCKER_COMPOSE" exec rag python /app/src/main.py
