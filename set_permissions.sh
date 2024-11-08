@@ -27,16 +27,13 @@ echo "Setting permissions for RAG project..."
 
 # Set permissions for core files
 echo "Setting core file permissions..."
+chmod 644 "$PROJECT_DIR/src/"*.py
+chmod 644 "$PROJECT_DIR/tests/"*.py
+chmod 644 "$PROJECT_DIR/docker/Dockerfile"
+chmod 644 "$PROJECT_DIR/docker/docker-compose.yml"
 chmod 644 "$PROJECT_DIR/requirements.txt"
-chmod 644 "$PROJECT_DIR/Dockerfile"
-chmod 644 "$PROJECT_DIR/docker-compose.yml"
-chmod 644 "$PROJECT_DIR/main.py"
 success "Core file permissions set"
 
 # Set permissions for scripts
 echo "Setting script permissions..."
-chmod 755 "$PROJECT_DIR/setup.sh"
-chmod 755 "$PROJECT_DIR/cleanup.sh"
-chmod 755 "$PROJECT_DIR/activate_rag.sh"
-chmod 755 "$PROJECT_DIR/start_services.sh"
-chmod 755 "$PROJECT_DIR/set_permissions.sh" 
+chmod 755 "$PROJECT_DIR/"*.sh

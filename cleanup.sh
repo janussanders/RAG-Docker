@@ -22,12 +22,13 @@ warn() {
 }
 
 PROJECT_DIR="/Volumes/Algernon/RAG/RAG-Docker"
+DOCKER_COMPOSE="$PROJECT_DIR/docker/docker-compose.yml"
 
 echo "Starting comprehensive cleanup..."
 
 # Stop running containers and remove Docker artifacts
 echo "Cleaning Docker artifacts..."
-docker-compose down 2>/dev/null
+docker-compose -f "$DOCKER_COMPOSE" down 2>/dev/null
 docker container prune -f
 docker volume prune -f
 docker image prune -f
@@ -49,6 +50,9 @@ find "$PROJECT_DIR" -type l -exec rm -f {} \;
 # Double-check for any remaining symlinks with different methods
 find "$PROJECT_DIR" -lname '*' -delete
 find "$PROJECT_DIR" -xtype l -delete
+# Add specific cleanup for qdrant_storage symlinks
+rm -f "$PROJECT_DIR/._qdrant_storage"
+rm -f "$PROJECT_DIR/qdrant_storage/._*"
 success "Removed all symlinks"
 
 # Remove extended attributes and ._ files
@@ -58,11 +62,12 @@ xattr -cr "$PROJECT_DIR" 2>/dev/null
 success "Removed extended attributes"
 
 # Clean Python cache files
-echo "Cleaning Python cache..."
+echo "Cleaning Python cache and version artifacts..."
 find "$PROJECT_DIR" -type f -name "*.pyc" -delete
 find "$PROJECT_DIR" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null
 find "$PROJECT_DIR" -type d -name "*.egg-info" -exec rm -rf {} + 2>/dev/null
-success "Cleaned Python cache"
+find "$PROJECT_DIR" -type f -name "*=*.*.*" -delete
+success "Cleaned Python cache and version artifacts"
 
 # Remove cache directories
 echo "Removing cache directories..."
