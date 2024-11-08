@@ -1,0 +1,6 @@
+._*
+.DS_Store
+qdrant_storage/
+.git/
+__pycache__/
+*.pyc 
