@@ -1,10 +1,24 @@
+#!/usr/bin/env python3
+
 import os
 from pathlib import Path
 from typing import List, Optional
+from loguru import logger
+from llama_index.core import (
+    SimpleDirectoryReader, 
+    Document, 
+    VectorStoreIndex, 
+    StorageContext
+)
 
 import pypdf
-from llama_index import SimpleDirectoryReader, Document
-from llama_index.core import VectorStoreIndex, StorageContext
+from llama_index.core import (
+    SimpleDirectoryReader, 
+    Document, 
+    VectorStoreIndex, 
+    StorageContext,
+    ServiceContext
+)
 from llama_index.core.node_parser import SentenceSplitter
 from llama_index.vector_stores.qdrant import QdrantVectorStore
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
@@ -12,27 +26,41 @@ from qdrant_client import QdrantClient
 
 def extract_pdf_text(pdf_path: str) -> str:
     """Extract text from PDF file."""
-    with open(pdf_path, 'rb') as file:
-        pdf_reader = pypdf.PdfReader(file)
-        text = ''
-        for page in pdf_reader.pages:
-            text += page.extract_text() + '\n'
-    return text
+    try:
+        with open(pdf_path, 'rb') as file:
+            pdf_reader = pypdf.PdfReader(file)
+            text = '\n'.join(
+                page.extract_text() 
+                for page in pdf_reader.pages
+            )
+        logger.info(f"Successfully extracted text from {pdf_path}")
+        return text
+    except Exception as e:
+        logger.error(f"Error extracting text from PDF: {str(e)}")
+        raise
 
 def process_documents(docs_dir: str = "./docs") -> List[Document]:
     """Process all documents in the specified directory."""
-    reader = SimpleDirectoryReader(
-        input_dir=docs_dir,
-        filename_as_id=True
-    )
-    documents = reader.load_data()
-    return documents
+    try:
+        reader = SimpleDirectoryReader(
+            input_dir=docs_dir,
+            filename_as_id=True,
+            recursive=True,
+            exclude_hidden=True
+        )
+        documents = reader.load_data()
+        logger.info(f"Processed {len(documents)} documents from {docs_dir}")
+        return documents
+    except Exception as e:
+        logger.error(f"Error processing documents: {str(e)}")
+        raise
 
-def create_chunks(documents: List[Document]) -> List[Document]:
+def create_chunks(documents: List[Document], chunk_size: int = 1024, overlap: int = 200) -> List[Document]:
     """Split documents into chunks."""
     parser = SentenceSplitter(
-        chunk_size=1024,
-        chunk_overlap=200
+        chunk_size=chunk_size,
+        chunk_overlap=overlap,
+        paragraph_separator="\n\n"
     )
     nodes = parser.get_nodes_from_documents(documents)
     return nodes

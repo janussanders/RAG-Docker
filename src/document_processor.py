@@ -5,7 +5,7 @@ import asyncio
 from typing import List, Optional
 from pathlib import Path
 from loguru import logger
-from llama_index import (
+from llama_index.core import (
     SimpleDirectoryReader,
     ServiceContext,
     StorageContext,
@@ -21,7 +21,7 @@ class DocumentProcessor:
     def __init__(
         self, 
         docs_dir: str = './docs', 
-        collection_name: str = 'info_from_docs',
+        collection_name: str = 'dspy_docs',
         embedding_model: str = 'BAAI/bge-small-en-v1.5'
     ):
         self.docs_dir = Path(docs_dir)
@@ -30,6 +30,11 @@ class DocumentProcessor:
         self.qdrant_client = AsyncQdrantClient("localhost", port=6333)
         self.vector_store = None
         self.index = None
+        
+        # Initialize embedding model
+        self.embed_model = HuggingFaceEmbedding(
+            model_name=embedding_model
+        )
         
     async def initialize(self):
         """Async initialization of the processor."""
@@ -52,6 +57,7 @@ class DocumentProcessor:
         self.vector_store = QdrantVectorStore(
             client=self.qdrant_client,
             collection_name=self.collection_name,
+            embedding_function=self.embed_model
         )
         logger.info("Initialized vector store")
     
@@ -64,6 +70,7 @@ class DocumentProcessor:
             reader = SimpleDirectoryReader(
                 str(self.docs_dir),
                 recursive=True,
+                filename_as_id=True,
                 file_extractor={
                     ".pdf": "default"
                 }

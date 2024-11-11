@@ -1,8 +1,9 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
-from typing import List
-from document_processor import DocumentProcessor
+from typing import List, Optional
 from loguru import logger
+
+from .query_docs import DocumentQuerier
 
 app = FastAPI(title="Document Processing API")
 
