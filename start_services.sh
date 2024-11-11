@@ -15,58 +15,20 @@ log_success() { echo -e "${GREEN}✓ $1${NC}"; }
 log_warning() { echo -e "${YELLOW}! $1${NC}"; }
 log_error() { echo -e "${RED}✗ $1${NC}" >&2; }
 
-# Configuration
-MAX_RETRIES=30
-RETRY_DELAY=2
-
 echo "Starting RAG services..."
 
-# Ensure permissions are correct
-./set_permissions.sh
+# Verify clean state
+if [ -f "docker/._Dockerfile" ] || [ -f "docker/._docker-compose.yml" ] || [ -f "._docker" ]; then
+    log_error "Environment not clean. Please run ./cleanup.sh first"
+    exit 1
+fi
 
 # Start services with docker-compose
 echo "Building and starting containers..."
 docker-compose -f docker/docker-compose.yml up -d --build
-log_success "Containers started"
 
-# Wait for Qdrant
-echo "Waiting for Qdrant to be ready..."
-for i in $(seq 1 $MAX_RETRIES); do
-    if curl -s -f "http://localhost:6333/health" > /dev/null; then
-        log_success "Qdrant is ready"
-        break
-    fi
-    if [ $i -eq $MAX_RETRIES ]; then
-        log_error "Qdrant failed to start"
-        exit 1
-    fi
-    echo "Waiting for Qdrant... ($i/$MAX_RETRIES)"
-    sleep $RETRY_DELAY
-done
-
-# Wait for Ollama
-echo "Waiting for Ollama to be ready..."
-for i in $(seq 1 $MAX_RETRIES); do
-    if curl -s -f "http://localhost:11434/api/tags" > /dev/null; then
-        log_success "Ollama is ready"
-        break
-    fi
-    if [ $i -eq $MAX_RETRIES ]; then
-        log_error "Ollama failed to start"
-        exit 1
-    fi
-    echo "Waiting for Ollama... ($i/$MAX_RETRIES)"
-    sleep $RETRY_DELAY
-done
-
-# Verify all services
+# Verify services started
 echo "Verifying services..."
 docker-compose -f docker/docker-compose.yml ps
 
-log_success "All services started successfully!"
-echo -e "\nUseful commands:"
-echo "- View logs: docker-compose -f docker/docker-compose.yml logs"
-echo "- Stop services: docker-compose -f docker/docker-compose.yml down"
-echo "- Restart services: docker-compose -f docker/docker-compose.yml restart"
-echo "- Check logs: docker-compose -f docker/docker-compose.yml logs"
-echo "- Check status: docker-compose -f docker/docker-compose.yml ps"
+log_success "Services started successfully!"
