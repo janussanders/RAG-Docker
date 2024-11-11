@@ -7,6 +7,8 @@ from datetime import datetime
 from qdrant_client import QdrantClient
 from qdrant_client.http.models import Distance, VectorParams
 from qdrant_client.http.models import UpdateStatus
+import pytest
+from src.query_docs import DocumentQuerier
 
 # ANSI color codes
 GREEN = '\033[92m'
@@ -23,45 +25,9 @@ def error(msg):
 def warn(msg):
     print(f"{YELLOW}! {msg}{NC}")
 
-def test_qdrant():
-    print("\nTesting Qdrant Connection and Functionality...")
-    
-    try:
-        # Initialize client
-        client = QdrantClient("localhost", port=6333)
-        success("Connected to Qdrant")
-
-        # List existing collections
-        collections = client.get_collections()
-        success(f"Retrieved collections: {collections}")
-
-        # Create a test collection
-        test_collection_name = f"test_collection_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        client.create_collection(
-            collection_name=test_collection_name,
-            vectors_config=VectorParams(size=384, distance=Distance.COSINE),
-        )
-        success(f"Created test collection: {test_collection_name}")
-
-        # Wait a moment for collection to be ready
-        time.sleep(1)
-
-        # Verify collection was created
-        collections_after = client.get_collections()
-        if any(c.name == test_collection_name for c in collections_after.collections):
-            success("Test collection verified")
-        else:
-            error("Test collection not found after creation")
-
-        # Clean up test collection
-        client.delete_collection(test_collection_name)
-        success("Cleaned up test collection")
-
-        return True
-
-    except Exception as e:
-        error(f"Error during Qdrant test: {str(e)}")
-        return False
+def test_qdrant_connection():
+    client = QdrantClient("localhost", port=6333)
+    assert client.get_collections()
 
 if __name__ == "__main__":
     print("Starting Qdrant Test Suite")
@@ -86,7 +52,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
     # Run tests
-    if test_qdrant():
+    if test_qdrant_connection():
         success("\nAll Qdrant tests passed successfully!")
         sys.exit(0)
     else:

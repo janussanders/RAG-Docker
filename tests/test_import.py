@@ -28,4 +28,14 @@ except ImportError:
 
 gc.collect()
 print("\nFinal memory usage:")
-print_memory_usage() 
+print_memory_usage()
+
+def test_src_imports():
+    """Test that all source modules can be imported"""
+    from src import document_processor
+    from src import process_docs
+    from src import query_docs
+    from src import main
+    from src import api
+    
+    assert True 
