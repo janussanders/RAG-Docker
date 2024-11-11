@@ -1,164 +1,71 @@
 #!/bin/bash
 
-# Define colors for output
+# Set error handling
+set -e
+trap 'echo "Error on line $LINENO"' ERR
+
+# Colors for output
 GREEN='\033[0;32m'
-RED='\033[0;31m'
 YELLOW='\033[1;33m'
+RED='\033[0;31m'
 NC='\033[0m'
 
-# Function to print success messages
-success() {
-    echo -e "${GREEN}✓ $1${NC}"
-}
+# Helper functions
+log_success() { echo -e "${GREEN}✓ $1${NC}"; }
+log_warning() { echo -e "${YELLOW}! $1${NC}"; }
+log_error() { echo -e "${RED}✗ $1${NC}" >&2; }
 
-# Function to print error messages
-error() {
-    echo -e "${RED}✗ $1${NC}"
-}
+echo "Starting cleanup..."
 
-# Function to print warning messages
-warn() {
-    echo -e "${YELLOW}! $1${NC}"
-}
+# Clean up symlinks
+echo "Cleaning up symlinks..."
+find . -type l -delete 2>/dev/null || true
+log_success "Symlinks cleaned"
 
-PROJECT_DIR="/Volumes/Algernon/RAG/RAG-Docker"
-DOCKER_COMPOSE="$PROJECT_DIR/docker/docker-compose.yml"
+# Clean up macOS metadata
+echo "Cleaning up macOS metadata..."
+find . -name "._*" -delete 2>/dev/null || true
+find . -name ".DS_Store" -delete 2>/dev/null || true
 
-echo "Starting comprehensive cleanup..."
+# Stop and remove containers
+echo "Stopping containers..."
+docker-compose -f docker/docker-compose.yml down || true
+log_success "Containers stopped"
 
-# More aggressive cleanup for macOS metadata and symlinks
-echo "Cleaning up macOS metadata and symlinks..."
-# Force remove the specific qdrant_storage symlink first
-rm -f "$PROJECT_DIR/._qdrant_storage"
-rm -f "$PROJECT_DIR/qdrant_storage/._*"
-
-# Clear all extended attributes recursively
-xattr -cr "$PROJECT_DIR" 2>/dev/null || true
-
-# Multiple methods to find and remove symlinks
-find "$PROJECT_DIR" -type l -delete
-find "$PROJECT_DIR" -lname '*' -delete
-find "$PROJECT_DIR" -xtype l -delete
-
-# Specific cleanup for macOS metadata
-find "$PROJECT_DIR" -name "._*" -exec rm -f {} \;
-find "$PROJECT_DIR" -name ".DS_Store" -exec rm -f {} \;
-
-# Double-check for the problematic symlink
-if [ -L "$PROJECT_DIR/._qdrant_storage" ]; then
-    unlink "$PROJECT_DIR/._qdrant_storage" 2>/dev/null || rm -f "$PROJECT_DIR/._qdrant_storage"
-fi
-
-success "Cleaned up macOS metadata and symlinks"
-
-# Clean Docker artifacts
-echo "Cleaning Docker artifacts..."
-docker-compose -f "$DOCKER_COMPOSE" down --volumes --remove-orphans 2>/dev/null
-docker container prune -f
-docker volume prune -f
-docker image prune -f
-docker builder prune -f  # Add this line to clean build cache
-success "Cleaned Docker artifacts"
-
-# Deactivate virtual environment if active
-deactivate 2>/dev/null || true
-
-# Remove virtual environment and its symlinks
-echo "Removing virtual environment..."
-rm -rf "$PROJECT_DIR/rag_env"
-rm -f "$PROJECT_DIR/_rag_env"  # Remove specific symlink
-rm -f "$PROJECT_DIR/._rag_env"  # Remove potential hidden symlink
-success "Removed virtual environment and related symlinks"
-
-# Find and remove ALL symlinks recursively
-echo "Removing all symlinks..."
-find "$PROJECT_DIR" -type l -exec rm -f {} \;
-# Double-check for any remaining symlinks with different methods
-find "$PROJECT_DIR" -lname '*' -delete
-find "$PROJECT_DIR" -xtype l -delete
-# Add specific cleanup for qdrant_storage symlinks
-rm -f "$PROJECT_DIR/._qdrant_storage"
-rm -f "$PROJECT_DIR/qdrant_storage/._*"
-success "Removed all symlinks"
-
-# Remove extended attributes and ._ files
-echo "Removing extended attributes..."
-find "$PROJECT_DIR" -name "._*" -delete
-xattr -cr "$PROJECT_DIR" 2>/dev/null
-success "Removed extended attributes"
-
-# Clean Python cache files
-echo "Cleaning Python cache and version artifacts..."
-find "$PROJECT_DIR" -type f -name "*.pyc" -delete
-find "$PROJECT_DIR" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null
-find "$PROJECT_DIR" -type d -name "*.egg-info" -exec rm -rf {} + 2>/dev/null
-find "$PROJECT_DIR" -type f -name "*=*.*.*" -delete
-success "Cleaned Python cache and version artifacts"
-
-# Remove cache directories
-echo "Removing cache directories..."
-rm -rf "$PROJECT_DIR/cache"
-success "Removed cache directories"
-
-# Verify no symlinks remain
-remaining_symlinks=$(find "$PROJECT_DIR" -type l)
-if [ -n "$remaining_symlinks" ]; then
-    warn "Found remaining symlinks:"
-    echo "$remaining_symlinks"
-    echo "Attempting forced removal..."
-    find "$PROJECT_DIR" -type l -exec rm -f {} \;
-    success "Forced removal complete"
-else
-    success "No remaining symlinks found"
-fi
-
-# Clean Qdrant storage but preserve directory
-echo "Cleaning Qdrant storage..."
-rm -rf "$PROJECT_DIR/qdrant_storage/*"
-mkdir -p "$PROJECT_DIR/qdrant_storage"
-chmod 755 "$PROJECT_DIR/qdrant_storage"
-success "Cleaned Qdrant storage"
-
-# Clean build context
-echo "Cleaning build context..."
-# Stop all containers first
-docker-compose -f "$DOCKER_COMPOSE" down --volumes --remove-orphans 2>/dev/null
-
-# Remove problematic directories
-rm -rf "$PROJECT_DIR/qdrant_storage/aliases" 2>/dev/null
-rm -rf "$PROJECT_DIR/qdrant_storage/collections" 2>/dev/null
-rm -rf "$PROJECT_DIR/qdrant_storage/snapshots" 2>/dev/null
-
-# Clean Docker artifacts
-docker container prune -f
-docker volume prune -f
-docker image prune -f
-docker builder prune -f  # Add this line to clean build cache
-
-success "Cleaned build context"
-
-echo "Checking for and cleaning up ports..."
-# Function to kill process using a port
-kill_port() {
-    local port=$1
-    local pid=$(lsof -ti :$port)
-    if [ ! -z "$pid" ]; then
-        echo "Killing process using port $port (PID: $pid)"
-        kill -9 $pid
+# Remove specific containers if they exist
+for container in rag_app rag_qdrant rag_ollama; do
+    if docker ps -a | grep -q $container; then
+        docker rm -f $container || true
+        log_success "Removed container: $container"
     fi
-}
+done
 
-# Check and clean up Qdrant ports
-kill_port 6333
-kill_port 6334
+# Remove volumes
+echo "Removing volumes..."
+for volume in docker_ollama_models docker_qdrant_storage rag-docker_qdrant_storage; do
+    if docker volume ls | grep -q $volume; then
+        docker volume rm -f $volume || true
+        log_success "Removed volume: $volume"
+    fi
+done
 
-# Give system time to release ports
-sleep 2
+# Remove networks (except default ones)
+echo "Removing networks..."
+for network in docker_default; do
+    if docker network ls | grep -q $network; then
+        docker network rm $network || true
+        log_success "Removed network: $network"
+    fi
+done
 
-success "Cleaned up ports"
+# Clean up Docker system
+echo "Cleaning up Docker system..."
+docker system prune -f
+log_success "Docker system cleaned"
 
-echo -e "\n${GREEN}Cleanup complete!${NC}"
-echo "You can now run:"
-echo "1. ./setup.sh to create a new environment"
-echo "2. ./set_permissions.sh to set correct permissions"
-echo "3. source ./activate_rag.sh to activate the environment"
+# Clean local directories
+echo "Cleaning local directories..."
+rm -rf qdrant_storage/* data/* logs/* cache/* 2>/dev/null || true
+log_success "Local directories cleaned"
+
+log_success "Cleanup complete!"
