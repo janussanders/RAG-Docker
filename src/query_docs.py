@@ -45,23 +45,39 @@ class DocumentQuerier:
         self.index = None
         
         # Initialize LLM with the smaller quantized model
+        logger.info("Initializing Ollama with orca-mini model...")
         self.llm = Ollama(
-            model="llama2:7b",  # Changed from llama2:7b-chat-q4 to llama2:7b
+            model="orca-mini",
             base_url="http://host.docker.internal:11434",
             request_timeout=180.0
         )
         
         # Add this line to pull the model
+        logger.info("Pulling Ollama model...")
         self._pull_model()
+        
+        # Verify model is loaded by making a test query
+        self._verify_model()
 
     def _pull_model(self):
         """Pull the Ollama model if it's not already available."""
         try:
+            logger.info(f"Attempting to pull model: {self.llm.model}")
             self.llm.client.pull(self.llm.model)
             logger.info(f"Successfully pulled model: {self.llm.model}")
         except Exception as e:
             logger.error(f"Failed to pull model: {self.llm.model}. Error: {str(e)}")
             raise
+
+    def _verify_model(self):
+        """Verify the model is loaded by making a test query."""
+        try:
+            logger.info("Testing model with simple query...")
+            test_response = self.llm.complete("Say 'hello'")
+            logger.info(f"Model test successful. Response: {test_response}")
+        except Exception as e:
+            logger.error(f"Model verification failed. Error: {str(e)}")
+            raise RuntimeError("Failed to verify Ollama model is working properly")
 
     async def process_documents(self) -> List[Document]:
         """Load and process documents from the docs directory."""
