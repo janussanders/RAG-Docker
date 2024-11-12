@@ -109,47 +109,45 @@ async def wait_for_services(timeout: int = 30):
                         console.print(f"[yellow]Still waiting for {service}... (attempt {attempt})[/yellow]")
 
 async def interactive_session(querier):
-    """Run an interactive query session in the terminal with rich formatting."""
-    # Clear the screen first
-    console.clear()
+    """Run an interactive query session."""
+    logger.info("Starting interactive session")
     
+    console.clear()
     rprint("\n[bold blue]=== DSPy Documentation Query System ===[/bold blue]")
     rprint("[dim]Type 'exit' or 'quit' to end the session")
     rprint("[dim]Type 'help' for instructions[/dim]")
     rprint("[blue]======================================[/blue]\n")
 
+    # Debug info at start
+    logger.debug(f"Documents loaded: {len(querier.documents) if querier.documents else 0}")
+    logger.debug(f"Query engine status: {querier.query_engine is not None}")
+    logger.debug(f"Vector store status: {querier.vector_store is not None}")
+
     while True:
         try:
-            # Get user input
             query = console.input("\n[bold green]Enter your question:[/bold green] ").strip()
             
             if query.lower() in ['exit', 'quit']:
-                rprint("\n[yellow]Goodbye![/yellow]")
+                logger.info("User requested exit")
                 break
-            
-            if query.lower() == 'help':
-                rprint("\n[bold]Instructions:[/bold]")
-                rprint("- Ask any question about the DSPy documentation")
-                rprint("- Questions can be about concepts, usage, or examples")
-                rprint("- Type 'exit' or 'quit' to end the session")
-                continue
-            
+                
             if not query:
                 continue
+                
+            logger.info(f"Processing user query: {query}")
             
-            with console.status("[bold yellow]Searching for answer...[/bold yellow]"):
+            with console.status("[bold yellow]Searching...[/bold yellow]"):
                 response = await querier.query(query)
-            
-            rprint("\n[bold]Answer:[/bold]")
-            rprint(f"{response}\n")
-            rprint("[dim]-------------------------------------------[/dim]")
-
-        except KeyboardInterrupt:
-            rprint("\n\n[yellow]Session terminated by user. Goodbye![/yellow]")
-            break
+                logger.debug(f"Raw response: {response}")
+                
+            if response:
+                rprint(f"\n[bold]Answer:[/bold] {response}\n")
+            else:
+                rprint("\n[red]No response received[/red]\n")
+                
         except Exception as e:
+            logger.exception("Error in interactive session")
             rprint(f"\n[red]Error: {str(e)}[/red]")
-            rprint("[dim]Please try again or type 'exit' to quit.[/dim]")
 
 @contextmanager
 def suppress_stdout():
