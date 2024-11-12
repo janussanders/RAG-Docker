@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 from loguru import logger
 from typing import Optional
+import logging
 
 # Enable Metal optimizations for Apple Silicon
 os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
@@ -20,45 +21,47 @@ else:
 
 from .query_docs import DocumentQuerier
 
+# Setup file handler for health checks
+health_check_logger = logging.getLogger('health_checks')
+health_check_logger.setLevel(logging.INFO)
+file_handler = logging.FileHandler('logs/health_checks.log')
+file_handler.setFormatter(logging.Formatter('[%(asctime)s] %(message)s'))
+health_check_logger.addHandler(file_handler)
+
 async def wait_for_services(timeout: int = 30):
-    """Wait for Qdrant (containerized) to be ready"""
+    """Wait for services to be ready"""
     import aiohttp
-    import asyncio
     from datetime import datetime
     
-    # Setup health check logging
-    log_file = Path("logs/health_checks.log")
-    log_file.parent.mkdir(exist_ok=True)
+    log_file = "logs/health_checks.log"
     
-    async def log_health_check(message: str):
+    def log_message(msg: str):
         timestamp = datetime.now().isoformat()
         with open(log_file, "a") as f:
-            f.write(f"[{timestamp}] {message}\n")
+            f.write(f"[{timestamp}] {msg}\n")
     
     services = {
-        'Qdrant': 'http://qdrant:6333/',           
-        'Ollama': 'http://ollama:11434/api/version'  # Change to correct health check endpoint
+        'Qdrant': 'http://qdrant:6333/',
+        'Ollama': 'http://ollama:11434/api/version'
     }
     
-    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
+    async with aiohttp.ClientSession() as session:
         for service, url in services.items():
-            await log_health_check(f"Waiting for {service}...")
-            for attempt in range(timeout):
+            log_message(f"Waiting for {service}...")
+            attempt = 1
+            while True:
                 try:
                     async with session.get(url) as response:
                         if response.status == 200:
-                            await log_health_check(f"✓ {service} is ready (attempt {attempt + 1})")
+                            log_message(f"✓ {service} is ready (attempt {attempt})")
                             break
-                except aiohttp.ClientError as e:
-                    await log_health_check(f"Attempt {attempt + 1} failed for {service}: {str(e)}")
+                except aiohttp.ClientError:
+                    if attempt >= timeout:
+                        error_msg = f"ERROR: {service} is not available after {timeout} seconds"
+                        log_message(error_msg)
+                        raise RuntimeError(error_msg)
+                    attempt += 1
                     await asyncio.sleep(1)
-                except Exception as e:
-                    await log_health_check(f"Unexpected error connecting to {service}: {str(e)}")
-                    await asyncio.sleep(1)
-            else:
-                error_msg = f"{service} is not available after {timeout} seconds"
-                await log_health_check(f"ERROR: {error_msg}")
-                raise RuntimeError(error_msg)
 
 async def interactive_mode(querier):
     print("\nRAG System Ready! Enter your questions (type 'exit' to quit):")

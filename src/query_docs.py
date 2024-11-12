@@ -10,13 +10,37 @@ from llama_index.core import (
     StorageContext,
     ServiceContext,
     Settings,
-    QueryBundle
+    QueryBundle,
+    PromptTemplate
 )
 from llama_index.core.node_parser import SentenceSplitter
 from llama_index.vector_stores.qdrant import QdrantVectorStore
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from qdrant_client import QdrantClient
 from llama_index.llms.ollama import Ollama
+from llama_index.core.postprocessor import SentenceTransformerRerank
+
+# Define a system message to set context for the model
+SYSTEM_MESSAGE = """You are a helpful AI assistant that answers questions based on the provided context. 
+If you don't know the answer or can't find it in the context, simply say "I don't know!"."""
+
+# Define the prompt template with proper formatting
+template = """Context information is below:
+---------------------
+{context_str}
+---------------------
+
+Please think step by step to answer the following query in a crisp manner.
+If you can't find the answer in the context, say "I don't know!".
+
+Query: {query_str}
+
+Answer: Let me help you with that."""
+
+qa_prompt_tmpl = PromptTemplate(
+    template=template,
+    system_message=SYSTEM_MESSAGE
+)
 
 class DocumentQuerier:
     def __init__(
@@ -58,8 +82,14 @@ class DocumentQuerier:
         
         # Verify model is loaded by making a test query
         self._verify_model()
-
-        self.prompt_template = get_prompt_template()
+        
+        # Initialize reranker
+        self.reranker = SentenceTransformerRerank(
+            model="cross-encoder/ms-marco-MiniLM-L-2-v2",
+            top_n=3
+        )
+        
+        self.query_engine = None  # Will be initialized after index creation
 
     def _pull_model(self):
         """Pull the Ollama model if it's not already available."""
@@ -114,6 +144,8 @@ class DocumentQuerier:
                 
             # Set the default embedding model
             Settings.embed_model = self.embed_model
+            # Set the default LLM to our Ollama instance
+            Settings.llm = self.llm
                 
             self.vector_store = QdrantVectorStore(
                 client=self.qdrant_client,
@@ -132,6 +164,14 @@ class DocumentQuerier:
                 embed_model=self.embed_model
             )
             
+            # Initialize query engine with custom settings
+            self.query_engine = self.index.as_query_engine(
+                similarity_top_k=10,
+                node_postprocessors=[self.reranker],
+                llm=self.llm,
+                text_qa_template=qa_prompt_tmpl
+            )
+            
             logger.info("Vector store and index initialized")
             return self.vector_store
             
@@ -141,16 +181,28 @@ class DocumentQuerier:
 
     async def query(self, question: str) -> str:
         try:
-            # Get relevant documents from vector store
-            results = self.vector_store.similarity_search(question, k=3)
+            # Get initial documents from vector store
+            initial_results = self.vector_store.similarity_search(question, k=5)  # Get more initial results
             
-            # Combine the context from relevant documents
-            context = "\n\n".join([doc.page_content for doc in results])
+            # Create nodes from the results
+            nodes = [
+                Document(text=doc.page_content, extra_info={"score": doc.metadata.get("score", 1.0)})
+                for doc in initial_results
+            ]
+            
+            # Rerank the nodes
+            reranked_nodes = self.reranker.postprocess_nodes(
+                nodes,
+                query_bundle=QueryBundle(question)
+            )
+            
+            # Combine the reranked context
+            context = "\n\n".join([node.text for node in reranked_nodes])
             
             # Format the prompt with context and question
-            prompt = self.prompt_template.format(
-                context=context,
-                question=question
+            prompt = qa_prompt_tmpl.format(
+                context_str=context,
+                query_str=question
             )
             
             # Get response from LLM
@@ -167,13 +219,24 @@ class DocumentQuerier:
         if hasattr(self, 'qdrant_client'):
             self.qdrant_client.close()
 
-def get_prompt_template():
-    return """You are a helpful AI assistant. Use the following context to answer the question. 
-If you cannot find the answer in the context, say "I cannot find the answer in the provided context."
-
-Context:
-{context}
-
-Question: {question}
-
-Answer: """
+async def get_response(client, context_str, query_str):
+    formatted_prompt = qa_prompt_tmpl.format(
+        context_str=context_str,
+        query_str=query_str
+    )
+    
+    response = await client.chat(
+        model="orca-mini",  # or your chosen model
+        messages=[
+            {
+                "role": "system",
+                "content": SYSTEM_MESSAGE
+            },
+            {
+                "role": "user",
+                "content": formatted_prompt
+            }
+        ]
+    )
+    
+    return response.message.content
