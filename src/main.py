@@ -36,8 +36,8 @@ async def wait_for_services(timeout: int = 30):
             f.write(f"[{timestamp}] {message}\n")
     
     services = {
-        'Qdrant': 'http://qdrant:6333/',           # Just check root endpoint
-        'Ollama': 'http://ollama:11434/api/health'  # Add Ollama health check
+        'Qdrant': 'http://qdrant:6333/',           
+        'Ollama': 'http://ollama:11434/api/version'  # Change to correct health check endpoint
     }
     
     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
