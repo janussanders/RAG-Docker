@@ -7,6 +7,9 @@ from pathlib import Path
 from loguru import logger
 from typing import Optional
 import logging
+from rich.console import Console
+from rich.spinner import Spinner
+from rich import print as rprint
 
 # Enable Metal optimizations for Apple Silicon
 os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
@@ -63,24 +66,47 @@ async def wait_for_services(timeout: int = 30):
                     attempt += 1
                     await asyncio.sleep(1)
 
-async def interactive_mode(querier):
-    print("\nRAG System Ready! Enter your questions (type 'exit' to quit):")
+console = Console()
+
+async def interactive_session(querier):
+    """Run an interactive query session in the terminal with rich formatting."""
+    rprint("\n[bold blue]=== DSPy Documentation Query System ===[/bold blue]")
+    rprint("[dim]Type 'exit' or 'quit' to end the session")
+    rprint("[dim]Type 'help' for instructions[/dim]")
+    rprint("[blue]======================================[/blue]\n")
+
     while True:
         try:
-            question = input("\nYour question: ").strip()
-            if question.lower() in ['exit', 'quit']:
-                print("Goodbye!")
+            # Get user input
+            query = console.input("\n[bold green]Enter your question:[/bold green] ").strip()
+            
+            if query.lower() in ['exit', 'quit']:
+                rprint("\n[yellow]Goodbye![/yellow]")
                 break
             
-            # Call the query method from the querier instance
-            response = await querier.query(question)  # Make sure to await the query
-            print(f"\nAnswer: {response}")
+            if query.lower() == 'help':
+                rprint("\n[bold]Instructions:[/bold]")
+                rprint("- Ask any question about DSPy")
+                rprint("- Type 'exit' or 'quit' to end the session")
+                rprint("[dim]Type 'help' for instructions[/dim]")
+                continue
             
+            if not query:
+                continue
+            
+            with console.status("[bold yellow]Searching for answer...[/bold yellow]"):
+                response = await querier.query(query)
+            
+            rprint("\n[bold]Answer:[/bold]")
+            rprint(f"{response}\n")
+            rprint("[dim]-------------------------------------------[/dim]")
+
         except KeyboardInterrupt:
-            print("\nGoodbye!")
+            rprint("\n\n[yellow]Session terminated by user. Goodbye![/yellow]")
             break
         except Exception as e:
-            print(f"Error: {e}")
+            rprint(f"\n[red]Error: {str(e)}[/red]")
+            rprint("[dim]Please try again or type 'exit' to quit.[/dim]")
 
 async def main():
     try:
@@ -98,7 +124,7 @@ async def main():
         
         # Start interactive mode if requested
         if args.interactive:
-            await interactive_mode(querier)
+            await interactive_session(querier)
         
     except Exception as e:
         logger.error(f"Error in main: {str(e)}")

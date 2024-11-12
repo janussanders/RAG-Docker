@@ -158,21 +158,22 @@ class DocumentQuerier:
                 vector_store=self.vector_store
             )
             
+            # Create the base index
             self.index = VectorStoreIndex.from_documents(
                 self.documents,
                 storage_context=storage_context,
                 embed_model=self.embed_model
             )
             
-            # Initialize query engine with custom settings
+            # Configure the query engine with all components
             self.query_engine = self.index.as_query_engine(
-                similarity_top_k=10,
-                node_postprocessors=[self.reranker],
+                similarity_top_k=10,  # Get top 10 chunks
+                node_postprocessors=[self.reranker],  # Apply reranking
                 llm=self.llm,
-                text_qa_template=qa_prompt_tmpl
+                text_qa_template=qa_prompt_tmpl  # Use custom prompt template
             )
             
-            logger.info("Vector store and index initialized")
+            logger.info("Vector store and index initialized successfully")
             return self.vector_store
             
         except Exception as e:
