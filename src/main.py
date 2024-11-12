@@ -55,19 +55,12 @@ async def main():
         # Wait for services
         await wait_for_services()
         
-        # Initialize document processor
-        processor = DocumentProcessor()
-        await processor.initialize()
-        
-        # Process documents
-        documents = await processor.load_documents()
-        
-        # Create chunks and index
-        chunks = create_chunks(documents)
-        vector_store = setup_vector_store()
-        
-        # Initialize querier
+        # Initialize document querier
         querier = DocumentQuerier()
+        
+        # Process documents and setup vector store
+        documents = await querier.process_documents()
+        vector_store = await querier.setup_vector_store()
         
         # Run test query
         test_query = "What is DSPy and what are its main features?"
@@ -81,8 +74,6 @@ async def main():
         raise
     finally:
         # Cleanup
-        if 'processor' in locals():
-            await processor.close()
         if 'querier' in locals():
             querier.close()
 
