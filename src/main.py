@@ -17,6 +17,7 @@ from logging.handlers import RotatingFileHandler
 import sys
 from contextlib import contextmanager
 from io import StringIO
+import asyncio
 
 # Enable Metal optimizations for Apple Silicon
 os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
@@ -108,46 +109,58 @@ async def wait_for_services(timeout: int = 30):
                     if attempt % 5 == 0:  # Only print every 5 attempts
                         console.print(f"[yellow]Still waiting for {service}... (attempt {attempt})[/yellow]")
 
-async def interactive_session(querier):
-    """Run an interactive query session."""
-    logger.info("Starting interactive session")
-    
-    console.clear()
-    rprint("\n[bold blue]=== DSPy Documentation Query System ===[/bold blue]")
-    rprint("[dim]Type 'exit' or 'quit' to end the session")
-    rprint("[dim]Type 'help' for instructions[/dim]")
-    rprint("[blue]======================================[/blue]\n")
+def print_help():
+    """Print help information for interactive mode."""
+    help_text = """
+Available Commands:
+------------------
+help        Show this help message
+exit/quit   Exit the program
 
-    # Debug info at start
-    logger.debug(f"Documents loaded: {len(querier.documents) if querier.documents else 0}")
-    logger.debug(f"Query engine status: {querier.query_engine is not None}")
-    logger.debug(f"Vector store status: {querier.vector_store is not None}")
+Query Examples:
+--------------
+> What is DSPy?
+> How does DSPy handle prompts?
+> What are DSPy's main features?
+
+Tips:
+-----
+- Questions should be clear and specific
+- Wait for the response before typing next query
+- First query might take longer (model loading)
+"""
+    print(help_text)
+
+async def interactive_session(querier: DocumentQuerier):
+    """Run an interactive query session."""
+    print("\n=== DSPy Documentation Query System ===")
+    print("Type 'exit' or 'quit' to end the session")
+    print("Type 'help' for instructions")
+    print("======================================\n")
 
     while True:
         try:
-            query = console.input("\n[bold green]Enter your question:[/bold green] ").strip()
+            # Get user input
+            question = input("> ").strip()
             
-            if query.lower() in ['exit', 'quit']:
-                logger.info("User requested exit")
+            if question.lower() in ['exit', 'quit']:
+                print("Goodbye!")
                 break
                 
-            if not query:
+            if question.lower() == 'help':
+                print_help()
                 continue
                 
-            logger.info(f"Processing user query: {query}")
+            if not question:
+                continue
+                
+            # Process the query asynchronously
+            response = await querier.query(question)
+            print(f"\nAnswer: {response}\n")
             
-            with console.status("[bold yellow]Searching...[/bold yellow]"):
-                response = await querier.query(query)
-                logger.debug(f"Raw response: {response}")
-                
-            if response:
-                rprint(f"\n[bold]Answer:[/bold] {response}\n")
-            else:
-                rprint("\n[red]No response received[/red]\n")
-                
         except Exception as e:
-            logger.exception("Error in interactive session")
-            rprint(f"\n[red]Error: {str(e)}[/red]")
+            logger.error(f"Error processing query: {e}")
+            print(f"Error: {str(e)}")
 
 @contextmanager
 def suppress_stdout():
