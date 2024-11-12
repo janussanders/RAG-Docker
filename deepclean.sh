@@ -2,6 +2,7 @@
 
 # Color definitions
 GREEN='\033[0;32m'
+RED='\033[0;31m'
 NC='\033[0m' # No Color
 
 # Function to print success messages
@@ -12,6 +13,16 @@ success() {
 # Set project directory
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOCKER_COMPOSE="docker/docker-compose.yml"
+
+# Add warning prompt
+echo -e "${RED}⚠️  WARNING: This will erase all Docker containers, volumes, and cached data${NC}"
+echo "Are you sure you want to proceed? (y/N) "
+read -r response
+
+if [[ ! "$response" =~ ^[Yy]$ ]]; then
+    echo "Operation cancelled."
+    exit 0
+fi
 
 echo "Starting comprehensive cleanup..."
 
