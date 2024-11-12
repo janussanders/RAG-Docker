@@ -9,12 +9,14 @@ from llama_index.core import (
     VectorStoreIndex, 
     StorageContext,
     ServiceContext,
-    Settings
+    Settings,
+    QueryBundle
 )
 from llama_index.core.node_parser import SentenceSplitter
 from llama_index.vector_stores.qdrant import QdrantVectorStore
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from qdrant_client import QdrantClient
+from llama_index.llms.ollama import Ollama
 
 class DocumentQuerier:
     def __init__(
@@ -41,6 +43,13 @@ class DocumentQuerier:
         
         self.vector_store = None
         self.index = None
+        
+        # Initialize LLM with timeout settings
+        self.llm = Ollama(
+            model="llama2", 
+            base_url="http://host.docker.internal:11434",
+            request_timeout=60.0  # Add timeout
+        )
 
     async def process_documents(self) -> List[Document]:
         """Load and process documents from the docs directory."""
@@ -111,5 +120,17 @@ class DocumentQuerier:
         if not self.index:
             raise ValueError("Index not initialized. Call setup_vector_store first.")
         
-        response = await self.index.aquery(query_text)
-        return str(response) 
+        # Create query engine with our LLM
+        query_engine = self.index.as_query_engine(
+            llm=self.llm,
+            streaming=False
+        )
+        
+        # Execute query
+        response = query_engine.query(query_text)
+        return str(response)
+
+    def close(self):
+        """Close connections."""
+        if hasattr(self, 'qdrant_client'):
+            self.qdrant_client.close()

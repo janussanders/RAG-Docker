@@ -62,7 +62,7 @@ async def main():
         
         # Run test query
         test_query = "What is DSPy and what are its main features?"
-        response = querier.query(test_query)
+        response = await querier.query(test_query)
         logger.info(f"Query response: {response}")
         
         logger.success("RAG system initialized and tested successfully!")
