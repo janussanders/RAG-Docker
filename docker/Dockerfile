@@ -12,5 +12,4 @@ ENV PYTHONIOENCODING=utf8
 ENV PYTORCH_ENABLE_MPS_FALLBACK=1
 ENV CMAKE_ARGS="-DLLAMA_METAL=on"
 EXPOSE 8000
-RUN echo '#!/bin/bash\npython main.py' > /app/run.sh && chmod +x /app/run.sh
-CMD ["/app/run.sh"]
+CMD ["python", "-m", "src.main"]
