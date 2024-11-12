@@ -8,7 +8,8 @@ from llama_index.core import (
     Document, 
     VectorStoreIndex, 
     StorageContext,
-    ServiceContext
+    ServiceContext,
+    Settings
 )
 from llama_index.core.node_parser import SentenceSplitter
 from llama_index.vector_stores.qdrant import QdrantVectorStore
@@ -47,19 +48,25 @@ class DocumentQuerier:
             raise FileNotFoundError(f"Directory not found: {self.docs_dir}")
             
         try:
-            # List all PDF files
+            # List all PDF files first
             pdf_files = list(self.docs_dir.glob("*.pdf"))
-            logger.info(f"Found {len(pdf_files)} PDF files")
+            logger.info(f"Found PDF files: {[f.name for f in pdf_files]}")
             
             reader = SimpleDirectoryReader(
                 str(self.docs_dir),
                 recursive=True,
                 filename_as_id=True,
-                required_exts=[".pdf"],  # Only process PDFs
-                num_files_limit=10  # Limit for testing
+                required_exts=[".pdf"],
+                num_files_limit=10,
+                file_metadata=lambda filename: {"file": Path(filename).name}  # Add filename to metadata
             )
             self.documents = reader.load_data()
-            logger.info(f"Loaded {len(self.documents)} documents from {self.docs_dir}")
+            
+            # Log details about loaded documents
+            for doc in self.documents:
+                logger.info(f"Loaded document chunk: {doc.metadata.get('file', 'unknown')} - {len(doc.text)} chars")
+            
+            logger.info(f"Total documents/chunks loaded: {len(self.documents)}")
             return self.documents
             
         except Exception as e:
@@ -71,6 +78,9 @@ class DocumentQuerier:
         try:
             if not self.documents:
                 raise ValueError("No documents loaded. Call process_documents first.")
+                
+            # Set the default embedding model
+            Settings.embed_model = self.embed_model
                 
             self.vector_store = QdrantVectorStore(
                 client=self.qdrant_client,
@@ -85,7 +95,8 @@ class DocumentQuerier:
             
             self.index = VectorStoreIndex.from_documents(
                 self.documents,
-                storage_context=storage_context
+                storage_context=storage_context,
+                embed_model=self.embed_model
             )
             
             logger.info("Vector store and index initialized")
