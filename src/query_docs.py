@@ -44,11 +44,11 @@ class DocumentQuerier:
         self.vector_store = None
         self.index = None
         
-        # Initialize LLM with timeout settings
+        # Initialize LLM with much longer timeout
         self.llm = Ollama(
             model="llama2", 
             base_url="http://host.docker.internal:11434",
-            request_timeout=60.0  # Add timeout
+            request_timeout=180.0  # 3 minutes to be safe
         )
 
     async def process_documents(self) -> List[Document]:
@@ -66,15 +66,9 @@ class DocumentQuerier:
                 recursive=True,
                 filename_as_id=True,
                 required_exts=[".pdf"],
-                num_files_limit=10,
-                file_metadata=lambda filename: {"file": Path(filename).name}  # Add filename to metadata
+                num_files_limit=10
             )
             self.documents = reader.load_data()
-            
-            # Log details about loaded documents
-            for doc in self.documents:
-                logger.info(f"Loaded document chunk: {doc.metadata.get('file', 'unknown')} - {len(doc.text)} chars")
-            
             logger.info(f"Total documents/chunks loaded: {len(self.documents)}")
             return self.documents
             
