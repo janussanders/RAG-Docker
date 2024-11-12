@@ -109,7 +109,27 @@ clean_docker_directory() {
     chmod 755 docker
 }
 
+# Add missing variable definitions
+DATA_DIR="$PROJECT_DIR/data"
+QDRANT_STORAGE="$PROJECT_DIR/qdrant_storage"
+
+# Add missing function
+check_directory() {
+    if [ ! -d "$1" ]; then
+        echo "Creating directory: $1"
+        mkdir -p "$1"
+    fi
+}
+
+# Modify the script to either call main() or merge the logic
 main() {
+    echo "Setting Docker configuration permissions..."
+    if [ -d "$HOME/.docker" ]; then
+        sudo chmod -R u+rw "$HOME/.docker"
+        sudo chown -R "$USER" "$HOME/.docker"
+        success "Docker configuration permissions reset"
+    fi
+    
     echo "Setting permissions for containerized RAG system..."
     
     # Create necessary directories
@@ -119,17 +139,26 @@ main() {
     check_directory "$DATA_DIR"
     check_directory "$QDRANT_STORAGE"
     
-    # Set permissions
-    set_existing_permissions
-    set_core_permissions
-    set_docker_permissions  # This now includes the deep clean
-    set_data_permissions
-    set_script_permissions
-    set_container_volume_permissions
+    # Set core file permissions
+    echo "Setting core file permissions..."
+    chmod 644 "$PROJECT_DIR/src/"*.py
+    chmod 644 "$PROJECT_DIR/tests/"*.py
+    chmod 644 "$PROJECT_DIR/docker/Dockerfile"
+    chmod 644 "$PROJECT_DIR/docker/docker-compose.yml"
+    chmod 644 "$PROJECT_DIR/requirements.txt"
+    success "Core file permissions set"
     
-    # Verify all permissions
-    verify_permissions
+    # Set script permissions
+    echo "Setting script permissions..."
+    chmod 755 "$PROJECT_DIR/"*.sh
+    success "Script permissions set"
     
-    log_success "All permissions set successfully!"
-    # ... rest of the main function ...
+    # Clean and set Docker permissions
+    clean_docker_directory
+    success "Docker directory cleaned and permissions set"
+    
+    success "All permissions set successfully!"
 }
+
+# Add this at the end of the file
+main

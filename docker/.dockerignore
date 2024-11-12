@@ -1,7 +1,8 @@
 qdrant_storage/
 qdrant_storage
 ._*
-.DS_Store
+._**
+._.DS_Store
 .git/
 __pycache__/
 *.pyc

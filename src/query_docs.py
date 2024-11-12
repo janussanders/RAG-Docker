@@ -44,12 +44,24 @@ class DocumentQuerier:
         self.vector_store = None
         self.index = None
         
-        # Initialize LLM with timeout settings
+        # Initialize LLM with the smaller quantized model
         self.llm = Ollama(
-            model="llama2", 
+            model="llama2:7b",  # Changed from llama2:7b-chat-q4 to llama2:7b
             base_url="http://host.docker.internal:11434",
-            request_timeout=60.0  # Add timeout
+            request_timeout=180.0
         )
+        
+        # Add this line to pull the model
+        self._pull_model()
+
+    def _pull_model(self):
+        """Pull the Ollama model if it's not already available."""
+        try:
+            self.llm.client.pull(self.llm.model)
+            logger.info(f"Successfully pulled model: {self.llm.model}")
+        except Exception as e:
+            logger.error(f"Failed to pull model: {self.llm.model}. Error: {str(e)}")
+            raise
 
     async def process_documents(self) -> List[Document]:
         """Load and process documents from the docs directory."""
@@ -66,15 +78,9 @@ class DocumentQuerier:
                 recursive=True,
                 filename_as_id=True,
                 required_exts=[".pdf"],
-                num_files_limit=10,
-                file_metadata=lambda filename: {"file": Path(filename).name}  # Add filename to metadata
+                num_files_limit=10
             )
             self.documents = reader.load_data()
-            
-            # Log details about loaded documents
-            for doc in self.documents:
-                logger.info(f"Loaded document chunk: {doc.metadata.get('file', 'unknown')} - {len(doc.text)} chars")
-            
             logger.info(f"Total documents/chunks loaded: {len(self.documents)}")
             return self.documents
             
