@@ -59,6 +59,8 @@ class DocumentQuerier:
         # Verify model is loaded by making a test query
         self._verify_model()
 
+        self.prompt_template = get_prompt_template()
+
     def _pull_model(self):
         """Pull the Ollama model if it's not already available."""
         try:
@@ -137,22 +139,41 @@ class DocumentQuerier:
             logger.error(f"Error setting up vector store: {str(e)}")
             raise
 
-    async def query(self, query_text: str) -> str:
-        """Query the vector store."""
-        if not self.index:
-            raise ValueError("Index not initialized. Call setup_vector_store first.")
-        
-        # Create query engine with our LLM
-        query_engine = self.index.as_query_engine(
-            llm=self.llm,
-            streaming=False
-        )
-        
-        # Execute query
-        response = query_engine.query(query_text)
-        return str(response)
+    async def query(self, question: str) -> str:
+        try:
+            # Get relevant documents from vector store
+            results = self.vector_store.similarity_search(question, k=3)
+            
+            # Combine the context from relevant documents
+            context = "\n\n".join([doc.page_content for doc in results])
+            
+            # Format the prompt with context and question
+            prompt = self.prompt_template.format(
+                context=context,
+                question=question
+            )
+            
+            # Get response from LLM
+            response = await self.llm.acomplete(prompt)
+            
+            return response.text
+            
+        except Exception as e:
+            logger.error(f"Error in query: {str(e)}")
+            return f"Error processing query: {str(e)}"
 
     def close(self):
         """Close connections."""
         if hasattr(self, 'qdrant_client'):
             self.qdrant_client.close()
+
+def get_prompt_template():
+    return """You are a helpful AI assistant. Use the following context to answer the question. 
+If you cannot find the answer in the context, say "I cannot find the answer in the provided context."
+
+Context:
+{context}
+
+Question: {question}
+
+Answer: """
