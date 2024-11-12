@@ -1,7 +1,7 @@
 services:
   rag-app:
     container_name: rag-app
-    build: 
+    build:
       context: ..
       dockerfile: docker/Dockerfile
     ports:
@@ -10,10 +10,18 @@ services:
       - ..:/app
     depends_on:
       - qdrant
+      - ollama
     networks:
       - rag-network
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    command: >
+      sh -c "
+        ollama pull orca-mini &&
+        python main.py
+      "
 
   qdrant:
     container_name: qdrant
@@ -27,8 +35,24 @@ services:
     networks:
       - rag-network
 
+  ollama:
+    container_name: ollama
+    image: ollama/ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - rag-network
+    deploy:
+      resources:
+        reservations:
+          memory: 2GB
+
 volumes:
   qdrant_storage:
+    driver: local
+  ollama_data:
     driver: local
 
 networks:

@@ -44,9 +44,9 @@ class DocumentQuerier:
         self.vector_store = None
         self.index = None
         
-        # Initialize LLM with a smaller model
+        # Initialize LLM with the smaller quantized model
         self.llm = Ollama(
-            model="llama2:7b-chat", 
+            model="llama2:7b",  # Changed from llama2:7b-chat-q4 to llama2:7b
             base_url="http://host.docker.internal:11434",
             request_timeout=180.0
         )

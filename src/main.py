@@ -21,13 +21,12 @@ else:
 from .query_docs import DocumentQuerier
 
 async def wait_for_services(timeout: int = 30):
-    """Wait for Qdrant (containerized) and Ollama (local on Mac) to be ready"""
+    """Wait for Qdrant (containerized) to be ready"""
     import aiohttp
     import asyncio
     
     services = {
         'Qdrant': 'http://qdrant:6333/',           # Just check root endpoint
-        'Ollama': 'http://host.docker.internal:11434/api/tags'  # Mac host machine
     }
     
     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
@@ -60,12 +59,7 @@ async def main():
         documents = await querier.process_documents()
         vector_store = querier.setup_vector_store()
         
-        # Run test query
-        test_query = "What is DSPy and what are its main features?"
-        response = await querier.query(test_query)
-        logger.info(f"Query response: {response}")
-        
-        logger.success("RAG system initialized and tested successfully!")
+        logger.success("RAG system initialized successfully!")
         
     except Exception as e:
         logger.error(f"Error in main: {str(e)}")
