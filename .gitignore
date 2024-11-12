@@ -77,3 +77,7 @@ coverage.xml
 # Qdrant storage
 qdrant_storage/
 qdrant_storage/*
+
+# Logs
+/logs/*
+!logs/.gitkeep
