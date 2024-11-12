@@ -25,12 +25,6 @@ services:
         sleep 1;
       done &&
       python -m src.main --interactive'
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://ollama:11434/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
     stdin_open: true
     tty: true
 

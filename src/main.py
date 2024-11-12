@@ -6,6 +6,17 @@ import time
 from pathlib import Path
 from loguru import logger
 from typing import Optional
+import logging
+from rich.console import Console
+from rich.spinner import Spinner
+from rich import print as rprint
+from fastapi import FastAPI
+from transformers import logging as tf_logging
+from huggingface_hub import logging as hf_logging
+from logging.handlers import RotatingFileHandler
+import sys
+from contextlib import contextmanager
+from io import StringIO
 
 # Enable Metal optimizations for Apple Silicon
 os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
@@ -18,84 +29,160 @@ else:
     device = torch.device("cpu")
     logger.info("! Using CPU (MPS not available)")
 
+# Disable progress bars and reduce logging noise
+os.environ['HF_HUB_DISABLE_PROGRESS_BARS'] = '1'
+os.environ['TOKENIZERS_PARALLELISM'] = 'false'
+tf_logging.set_verbosity_error()
+hf_logging.set_verbosity_error()
+
 from .query_docs import DocumentQuerier
 
+# Create logs directory if it doesn't exist
+log_dir = Path("logs")
+log_dir.mkdir(exist_ok=True)
+
+# Setup different loggers
+def setup_loggers():
+    # Main application logger
+    app_logger = logging.getLogger('app')
+    app_logger.setLevel(logging.INFO)
+    app_handler = RotatingFileHandler(
+        'logs/app.log',
+        maxBytes=1024*1024,  # 1MB
+        backupCount=5
+    )
+    app_handler.setFormatter(
+        logging.Formatter('%(asctime)s | %(levelname)-8s | %(name)s:%(funcName)s:%(lineno)d - %(message)s')
+    )
+    app_logger.addHandler(app_handler)
+
+    # Model download logger
+    model_logger = logging.getLogger('model_downloads')
+    model_logger.setLevel(logging.INFO)
+    model_handler = RotatingFileHandler(
+        'logs/model_downloads.log',
+        maxBytes=1024*1024,
+        backupCount=3
+    )
+    model_handler.setFormatter(
+        logging.Formatter('%(asctime)s | %(levelname)-8s | %(name)s:%(funcName)s:%(lineno)d - %(message)s')
+    )
+    model_logger.addHandler(model_handler)
+
+app = FastAPI()
+
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy"}
+
+# Initialize console
+console = Console()
+
 async def wait_for_services(timeout: int = 30):
-    """Wait for Qdrant (containerized) to be ready"""
+    """Wait for services to be ready"""
     import aiohttp
-    import asyncio
     from datetime import datetime
     
-    # Setup health check logging
-    log_file = Path("logs/health_checks.log")
-    log_file.parent.mkdir(exist_ok=True)
-    
-    async def log_health_check(message: str):
-        timestamp = datetime.now().isoformat()
-        with open(log_file, "a") as f:
-            f.write(f"[{timestamp}] {message}\n")
-    
     services = {
-        'Qdrant': 'http://qdrant:6333/',           
-        'Ollama': 'http://ollama:11434/api/version'  # Change to correct health check endpoint
+        'Qdrant': 'http://qdrant:6333/',
+        'Ollama': 'http://ollama:11434/api/version'
     }
     
-    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
+    console.print("[yellow]Waiting for services to initialize...[/yellow]")
+    
+    async with aiohttp.ClientSession() as session:
         for service, url in services.items():
-            await log_health_check(f"Waiting for {service}...")
-            for attempt in range(timeout):
+            attempt = 1
+            while True:
                 try:
                     async with session.get(url) as response:
                         if response.status == 200:
-                            await log_health_check(f"✓ {service} is ready (attempt {attempt + 1})")
+                            console.print(f"[green]✓ {service} is ready[/green]")
                             break
-                except aiohttp.ClientError as e:
-                    await log_health_check(f"Attempt {attempt + 1} failed for {service}: {str(e)}")
+                except aiohttp.ClientError:
+                    if attempt >= timeout:
+                        error_msg = f"ERROR: {service} is not available after {timeout} seconds"
+                        raise RuntimeError(error_msg)
+                    attempt += 1
                     await asyncio.sleep(1)
-                except Exception as e:
-                    await log_health_check(f"Unexpected error connecting to {service}: {str(e)}")
-                    await asyncio.sleep(1)
-            else:
-                error_msg = f"{service} is not available after {timeout} seconds"
-                await log_health_check(f"ERROR: {error_msg}")
-                raise RuntimeError(error_msg)
+                    if attempt % 5 == 0:  # Only print every 5 attempts
+                        console.print(f"[yellow]Still waiting for {service}... (attempt {attempt})[/yellow]")
 
-async def interactive_mode(querier):
-    print("\nRAG System Ready! Enter your questions (type 'exit' to quit):")
+async def interactive_session(querier):
+    """Run an interactive query session."""
+    logger.info("Starting interactive session")
+    
+    console.clear()
+    rprint("\n[bold blue]=== DSPy Documentation Query System ===[/bold blue]")
+    rprint("[dim]Type 'exit' or 'quit' to end the session")
+    rprint("[dim]Type 'help' for instructions[/dim]")
+    rprint("[blue]======================================[/blue]\n")
+
+    # Debug info at start
+    logger.debug(f"Documents loaded: {len(querier.documents) if querier.documents else 0}")
+    logger.debug(f"Query engine status: {querier.query_engine is not None}")
+    logger.debug(f"Vector store status: {querier.vector_store is not None}")
+
     while True:
         try:
-            question = input("\nYour question: ").strip()
-            if question.lower() in ['exit', 'quit']:
-                print("Goodbye!")
+            query = console.input("\n[bold green]Enter your question:[/bold green] ").strip()
+            
+            if query.lower() in ['exit', 'quit']:
+                logger.info("User requested exit")
                 break
+                
+            if not query:
+                continue
+                
+            logger.info(f"Processing user query: {query}")
             
-            # Call the query method from the querier instance
-            response = await querier.query(question)  # Make sure to await the query
-            print(f"\nAnswer: {response}")
-            
-        except KeyboardInterrupt:
-            print("\nGoodbye!")
-            break
+            with console.status("[bold yellow]Searching...[/bold yellow]"):
+                response = await querier.query(query)
+                logger.debug(f"Raw response: {response}")
+                
+            if response:
+                rprint(f"\n[bold]Answer:[/bold] {response}\n")
+            else:
+                rprint("\n[red]No response received[/red]\n")
+                
         except Exception as e:
-            print(f"Error: {e}")
+            logger.exception("Error in interactive session")
+            rprint(f"\n[red]Error: {str(e)}[/red]")
+
+@contextmanager
+def suppress_stdout():
+    """Context manager to temporarily suppress stdout"""
+    stdout = sys.stdout
+    stderr = sys.stderr
+    # Redirect stdout/stderr to StringIO
+    sys.stdout = StringIO()
+    sys.stderr = StringIO()
+    try:
+        yield
+    finally:
+        # Restore original stdout/stderr
+        sys.stdout = stdout
+        sys.stderr = stderr
 
 async def main():
     try:
         # Wait for services
         await wait_for_services()
         
-        # Initialize document querier
-        querier = DocumentQuerier()
-        
-        # Process documents and setup vector store
-        documents = await querier.process_documents()
-        vector_store = querier.setup_vector_store()
+        # Suppress console output during model loading
+        with suppress_stdout():
+            # Initialize document querier
+            querier = DocumentQuerier()
+            
+            # Process documents and setup vector store
+            documents = await querier.process_documents()
+            vector_store = querier.setup_vector_store()
         
         logger.success("RAG system initialized successfully!")
         
-        # Start interactive mode if requested
+        # Start interactive session
         if args.interactive:
-            await interactive_mode(querier)
+            await interactive_session(querier)
         
     except Exception as e:
         logger.error(f"Error in main: {str(e)}")
