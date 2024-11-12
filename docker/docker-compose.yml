@@ -10,6 +10,8 @@ services:
       - ..:/app
     depends_on:
       - qdrant
+    networks:
+      - rag-network
 
   qdrant:
     container_name: qdrant
@@ -20,7 +22,13 @@ services:
     volumes:
       - ../qdrant_storage:/qdrant/storage
     restart: unless-stopped
+    networks:
+      - rag-network
 
 volumes:
   qdrant_storage:
     driver: local
+
+networks:
+  rag-network:
+    driver: bridge

@@ -27,7 +27,11 @@ class DocumentProcessor:
         self.docs_dir = Path(docs_dir)
         self.collection_name = collection_name
         self.embedding_model = embedding_model
-        self.qdrant_client = AsyncQdrantClient("localhost", port=6333)
+        self.qdrant_client = AsyncQdrantClient(
+            url="qdrant",
+            port=6333,
+            timeout=60.0
+        )
         self.vector_store = None
         self.index = None
         
