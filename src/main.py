@@ -17,6 +17,7 @@ from logging.handlers import RotatingFileHandler
 import sys
 from contextlib import contextmanager
 from io import StringIO
+import asyncio
 
 # Enable Metal optimizations for Apple Silicon
 os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
@@ -108,46 +109,72 @@ async def wait_for_services(timeout: int = 30):
                     if attempt % 5 == 0:  # Only print every 5 attempts
                         console.print(f"[yellow]Still waiting for {service}... (attempt {attempt})[/yellow]")
 
-async def interactive_session(querier):
-    """Run an interactive query session."""
-    logger.info("Starting interactive session")
-    
-    console.clear()
-    rprint("\n[bold blue]=== DSPy Documentation Query System ===[/bold blue]")
-    rprint("[dim]Type 'exit' or 'quit' to end the session")
-    rprint("[dim]Type 'help' for instructions[/dim]")
-    rprint("[blue]======================================[/blue]\n")
+def print_help():
+    """Print help information for interactive mode."""
+    help_text = """
+Available Commands:
+------------------
+help        Show this help message
+exit/quit   Exit the program
 
-    # Debug info at start
-    logger.debug(f"Documents loaded: {len(querier.documents) if querier.documents else 0}")
-    logger.debug(f"Query engine status: {querier.query_engine is not None}")
-    logger.debug(f"Vector store status: {querier.vector_store is not None}")
+Query Examples:
+--------------
+> What is DSPy?
+> How does DSPy handle prompts?
+> What are DSPy's main features?
+
+Tips:
+-----
+- Questions should be clear and specific
+- Wait for the response before typing next query
+- First query might take longer (model loading)
+"""
+    print(help_text)
+
+async def interactive_session(querier: DocumentQuerier):
+    """Run an interactive query session."""
+    print("\n=== DSPy Documentation Query System ===")
+    print("Type 'exit' or 'quit' to end the session")
+    print("Type 'help' for instructions")
+    print("======================================\n")
 
     while True:
         try:
-            query = console.input("\n[bold green]Enter your question:[/bold green] ").strip()
+            # Get user input with a prompt
+            question = input("> ").strip()
             
-            if query.lower() in ['exit', 'quit']:
-                logger.info("User requested exit")
+            # Handle exit commands
+            if question.lower() in ['exit', 'quit']:
+                print("Goodbye!")
                 break
                 
-            if not query:
+            if question.lower() == 'help':
+                print_help()
                 continue
                 
-            logger.info(f"Processing user query: {query}")
-            
-            with console.status("[bold yellow]Searching...[/bold yellow]"):
-                response = await querier.query(query)
-                logger.debug(f"Raw response: {response}")
+            if not question:
+                continue
+
+            # Show a spinner while processing
+            with console.status("[bold yellow]Processing query...") as status:
+                try:
+                    # Process the query asynchronously with a timeout
+                    response = await asyncio.wait_for(
+                        querier.query(question),
+                        timeout=30.0  # 30 second timeout
+                    )
+                    print(f"\n[bold green]Answer:[/bold green] {response}\n")
+                except asyncio.TimeoutError:
+                    print("[bold red]Error:[/bold red] Query timed out. Please try again.")
+                except Exception as e:
+                    print(f"[bold red]Error:[/bold red] {str(e)}")
                 
-            if response:
-                rprint(f"\n[bold]Answer:[/bold] {response}\n")
-            else:
-                rprint("\n[red]No response received[/red]\n")
-                
+        except KeyboardInterrupt:
+            print("\nGoodbye!")
+            break
         except Exception as e:
-            logger.exception("Error in interactive session")
-            rprint(f"\n[red]Error: {str(e)}[/red]")
+            logger.error(f"Error in interactive session: {e}")
+            print(f"[bold red]Error:[/bold red] {str(e)}")
 
 @contextmanager
 def suppress_stdout():
@@ -164,55 +191,88 @@ def suppress_stdout():
         sys.stdout = stdout
         sys.stderr = stderr
 
+async def check_system_ready(querier: DocumentQuerier) -> bool:
+    """Check if the RAG system is ready to handle queries."""
+    try:
+        with console.status("[yellow]Testing system..."):
+            # Verify query engine exists
+            if not querier.query_engine:
+                raise RuntimeError("Query engine not initialized")
+                
+            # Verify vector store exists
+            if not querier.vector_store:
+                raise RuntimeError("Vector store not initialized")
+                
+            # Try a simple test query
+            response = await querier.query("What is DSPy?")
+            if not response:
+                raise RuntimeError("Empty response from query system")
+                
+            console.print("[green]✓ System is ready[/green]")
+            return True
+    except Exception as e:
+        console.print(f"[red]✗ System check failed: {str(e)}[/red]")
+        logger.error(f"System check failed: {e}")
+        return False
+
 async def main():
     try:
         # Wait for services
         await wait_for_services()
         
-        # Suppress console output during model loading
+        # Initialize document querier
+        querier = None
         with suppress_stdout():
-            # Initialize document querier
             querier = DocumentQuerier()
             
-            # Process documents and setup vector store
+            # Process documents first
+            logger.info("Processing documents...")
             documents = await querier.process_documents()
+            if not documents:
+                raise RuntimeError("No documents processed")
+                
+            # Setup vector store
+            logger.info("Setting up vector store...")
             vector_store = querier.setup_vector_store()
+            if not vector_store:
+                raise RuntimeError("Vector store setup failed")
         
+        # Check if system is ready
+        if not await check_system_ready(querier):
+            logger.error("System failed readiness check")
+            return
+            
         logger.success("RAG system initialized successfully!")
         
         # Start interactive session
         if args.interactive:
             await interactive_session(querier)
-        
+            
     except Exception as e:
         logger.error(f"Error in main: {str(e)}")
         raise
     finally:
         # Cleanup
-        if 'querier' in locals():
+        if querier:
             querier.close()
 
 def get_prompt_template():
-    return """You are an AI assistant helping users understand technical documentation. 
-Analyze the following context and question carefully.
+    """Get the prompt template for the RAG system."""
+    return """You are a helpful AI assistant explaining the DSPy framework and its documentation.
+Answer questions based ONLY on the provided context. Be concise and specific.
 
-CONTEXT:
+Context:
 {context}
 
-QUESTION:
+Question:
 {question}
 
-GUIDELINES:
-- Answer based ONLY on the provided context
-- If uncertain, express your uncertainty
-- If information is missing, say so
-- Use specific references from the context
-- Keep responses clear and focused
-
-RESPONSE FORMAT:
-1. Direct Answer: [Provide concise answer]
-2. Supporting Evidence: [Quote relevant context]
-3. Additional Context: [If needed, provide clarification]
+Instructions:
+1. Use only information from the context
+2. If unsure, acknowledge uncertainty
+3. If context doesn't contain relevant info, say so
+4. Keep responses clear and focused
+5. Use specific examples from context when available
 
 Answer: """
 
