@@ -18,6 +18,11 @@ import sys
 from contextlib import contextmanager
 from io import StringIO
 import asyncio
+from asyncio import Queue
+from rich.live import Live
+from rich.console import Console
+from rich.status import Status
+import aioconsole
 
 # Enable Metal optimizations for Apple Silicon
 os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
@@ -36,7 +41,7 @@ os.environ['TOKENIZERS_PARALLELISM'] = 'false'
 tf_logging.set_verbosity_error()
 hf_logging.set_verbosity_error()
 
-from .query_docs import DocumentQuerier
+from .query_docs import DocumentQuerier, run_interactive_session
 
 # Create logs directory if it doesn't exist
 log_dir = Path("logs")
@@ -193,96 +198,103 @@ def suppress_stdout():
 
 async def check_system_ready(querier: DocumentQuerier) -> bool:
     """Check if the RAG system is ready to handle queries."""
+    console = Console()
+    
     try:
-        with console.status("[yellow]Testing system..."):
-            # Verify query engine exists
+        # Create async status
+        async with Status("[yellow]Testing system...", console=console) as status:
             if not querier.query_engine:
                 raise RuntimeError("Query engine not initialized")
-                
-            # Verify vector store exists
             if not querier.vector_store:
                 raise RuntimeError("Vector store not initialized")
                 
-            # Try a simple test query
             response = await querier.query("What is DSPy?")
             if not response:
                 raise RuntimeError("Empty response from query system")
-                
-            console.print("[green]✓ System is ready[/green]")
+            
+            await console.aprint("[green]✓ System is ready[/green]")
+            
+            # Use rich for better async display
+            await console.aprint("""
+=== DSPy Documentation Query System ===
+Type 'exit' or 'quit' to end the session
+Type 'help' for instructions
+======================================
+""")
+            
+            # Create message queue for async communication
+            message_queue = Queue()
+            
+            async def input_handler():
+                while True:
+                    # Use aioconsole for async input
+                    user_query = await aioconsole.ainput("> ")
+                    await message_queue.put(user_query.strip())
+            
+            async def query_handler():
+                while True:
+                    user_query = await message_queue.get()
+                    
+                    if not user_query:
+                        continue
+                    
+                    if user_query.lower() in ['exit', 'quit']:
+                        await console.aprint("\nGoodbye!")
+                        return
+                        
+                    if user_query.lower() == 'help':
+                        await console.aprint("""
+Instructions:
+- Enter your question about DSPy
+- Type 'exit' or 'quit' to end the session
+- Type 'help' to see these instructions again
+""")
+                        continue
+                    
+                    print("Processing query...", end='\r')
+                    response = await querier.query(user_query)
+                    print(" " * 50, end='\r')  # Clear processing message
+                    
+                    if response:
+                        print(f"\nAnswer: {response}\n")
+                    else:
+                        print("\nNo response received. Please try again.\n")
+                    
+                    logger.error(f"Error in query loop: {str(e)}")
+                    print(f"\nError: {str(e)}")
+            
+            # Run the input processing loop
+            await input_handler()
+            await query_handler()
             return True
+            
     except Exception as e:
         console.print(f"[red]✗ System check failed: {str(e)}[/red]")
         logger.error(f"System check failed: {e}")
         return False
 
-async def main():
+async def start_rag_system():
+    """Initialize and start the RAG system"""
     try:
-        # Wait for services
-        await wait_for_services()
+        # Initialize the querier and pass control to its main loop
+        from src.query_docs import DocumentQuerier, run_interactive_session
         
-        # Initialize document querier
-        querier = None
-        with suppress_stdout():
-            querier = DocumentQuerier()
-            
-            # Process documents first
-            logger.info("Processing documents...")
-            documents = await querier.process_documents()
-            if not documents:
-                raise RuntimeError("No documents processed")
-                
-            # Setup vector store
-            logger.info("Setting up vector store...")
-            vector_store = querier.setup_vector_store()
-            if not vector_store:
-                raise RuntimeError("Vector store setup failed")
+        querier = DocumentQuerier()
+        await querier.process_documents()
+        querier.setup_vector_store()
         
-        # Check if system is ready
-        if not await check_system_ready(querier):
-            logger.error("System failed readiness check")
-            return
-            
-        logger.success("RAG system initialized successfully!")
+        # Hand off control to the interactive session
+        await run_interactive_session(querier)
         
-        # Start interactive session
-        if args.interactive:
-            await interactive_session(querier)
-            
     except Exception as e:
-        logger.error(f"Error in main: {str(e)}")
+        logger.exception("Error starting RAG system")
         raise
-    finally:
-        # Cleanup
-        if querier:
-            querier.close()
-
-def get_prompt_template():
-    """Get the prompt template for the RAG system."""
-    return """You are a helpful AI assistant explaining the DSPy framework and its documentation.
-Answer questions based ONLY on the provided context. Be concise and specific.
-
-Context:
-{context}
-
-Question:
-{question}
-
-Instructions:
-1. Use only information from the context
-2. If unsure, acknowledge uncertainty
-3. If context doesn't contain relevant info, say so
-4. Keep responses clear and focused
-5. Use specific examples from context when available
-
-Answer: """
 
 if __name__ == "__main__":
-    import argparse
-    import asyncio
-    
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--interactive', action='store_true', help='Run in interactive mode')
-    args = parser.parse_args()
-
-    # Run the async main function
-    asyncio.run(main())
+    try:
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(start_rag_system())
+    except KeyboardInterrupt:
+        print("\nShutting down...")
+    finally:
+        loop.close()

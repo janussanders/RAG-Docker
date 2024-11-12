@@ -25,3 +25,6 @@ loguru==0.7.2
 pytest>=7.4.3
 pytest-cov>=4.1.0
 pytest-asyncio>=0.21.1
+
+# Add this line to your existing requirements
+aioconsole==0.7.1
