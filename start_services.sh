@@ -19,9 +19,21 @@ echo "Starting RAG services..."
 
 # Verify clean state
 if [ -f "docker/._Dockerfile" ] || [ -f "docker/._docker-compose.yml" ] || [ -f "._docker" ]; then
-    log_error "Environment not clean. Please run ./cleanup.sh first"
-    exit 1
+    log_warning "Environment not clean. Would you like to run cleanup.sh? (y/n)"
+    read -r response
+    if [[ "$response" =~ ^[Yy]$ ]]; then
+        ./cleanup.sh
+    else
+        log_error "Exiting due to unclean environment"
+        exit 1
+    fi
 fi
+
+# Clean up macOS metadata files
+echo "Cleaning up macOS metadata..."
+find . -name "._*" -delete
+find . -name ".DS_Store" -delete
+log_success "Metadata cleanup complete"
 
 # Start services with docker-compose
 echo "Building and starting containers..."
@@ -32,3 +44,10 @@ echo "Verifying services..."
 docker-compose -f docker/docker-compose.yml ps
 
 log_success "Services started successfully!"
+
+# Ask about running setup
+log_warning "Would you like to run setup.sh? (y/n)"
+read -r response
+if [[ "$response" =~ ^[Yy]$ ]]; then
+    ./setup.sh
+fi

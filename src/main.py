@@ -23,25 +23,29 @@ from .process_docs import process_documents, create_chunks, setup_vector_store
 from .query_docs import DocumentQuerier
 
 async def wait_for_services(timeout: int = 30):
-    """Wait for Qdrant and Ollama to be ready"""
+    """Wait for Qdrant (containerized) and Ollama (local on Mac) to be ready"""
     import aiohttp
     import asyncio
     
     services = {
-        'Qdrant': 'http://localhost:6333/health',
-        'Ollama': 'http://localhost:11434/api/tags'
+        'Qdrant': 'http://qdrant:6333/',           # Just check root endpoint
+        'Ollama': 'http://host.docker.internal:11434/api/tags'  # Mac host machine
     }
     
-    async with aiohttp.ClientSession() as session:
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
         for service, url in services.items():
             logger.info(f"Waiting for {service}...")
-            for _ in range(timeout):
+            for attempt in range(timeout):
                 try:
                     async with session.get(url) as response:
                         if response.status == 200:
-                            logger.success(f"✓ {service} is ready")
+                            logger.success(f"✓ {service} is ready (attempt {attempt + 1})")
                             break
-                except aiohttp.ClientError:
+                except aiohttp.ClientError as e:
+                    logger.debug(f"Attempt {attempt + 1} failed for {service}: {str(e)}")
+                    await asyncio.sleep(1)
+                except Exception as e:
+                    logger.warning(f"Unexpected error connecting to {service}: {str(e)}")
                     await asyncio.sleep(1)
             else:
                 raise RuntimeError(f"{service} is not available after {timeout} seconds")

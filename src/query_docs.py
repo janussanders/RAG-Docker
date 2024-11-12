@@ -2,12 +2,16 @@
 
 from typing import List, Optional
 from loguru import logger
-from llama_index.core import VectorStoreIndex, ServiceContext
+from llama_index.core import (
+    VectorStoreIndex,
+    Response,
+    ServiceContext
+)
 from llama_index.vector_stores.qdrant import QdrantVectorStore
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
-from llama_index.core.response.schema import Response
 from llama_index.core.postprocessor import SentenceTransformerRerank
 from qdrant_client import QdrantClient
+from llama_index.llms.ollama import Ollama
 
 class DocumentQuerier:
     def __init__(
