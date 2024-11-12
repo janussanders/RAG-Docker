@@ -1,81 +1,136 @@
 #!/usr/bin/env python3
 
 from typing import List, Optional
+from pathlib import Path
 from loguru import logger
 from llama_index.core import (
-    VectorStoreIndex,
-    Response,
-    ServiceContext
+    SimpleDirectoryReader, 
+    Document, 
+    VectorStoreIndex, 
+    StorageContext,
+    ServiceContext,
+    Settings,
+    QueryBundle
 )
+from llama_index.core.node_parser import SentenceSplitter
 from llama_index.vector_stores.qdrant import QdrantVectorStore
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
-from llama_index.core.postprocessor import SentenceTransformerRerank
 from qdrant_client import QdrantClient
 from llama_index.llms.ollama import Ollama
 
 class DocumentQuerier:
     def __init__(
         self,
-        collection_name: str = "dspy_docs",
-        embedding_model: str = "BAAI/bge-small-en-v1.5",
-        rerank_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+        docs_dir: str = './docs',
+        collection_name: str = 'dspy_docs',
+        embedding_model: str = 'sentence-transformers/all-MiniLM-L6-v2',
+        chunk_size: int = 1024,
+        chunk_overlap: int = 200
     ):
-        """Initialize the document querier with optimized settings."""
+        self.docs_dir = Path(docs_dir)
+        self.collection_name = collection_name
+        self.chunk_size = chunk_size
+        self.chunk_overlap = chunk_overlap
+        self.documents = None  # Add documents storage
+        
+        # Initialize clients
+        self.qdrant_client = QdrantClient(url="qdrant", port=6333)
+        
+        # Initialize embedding model
+        self.embed_model = HuggingFaceEmbedding(
+            model_name=embedding_model
+        )
+        
+        self.vector_store = None
+        self.index = None
+        
+        # Initialize LLM with timeout settings
+        self.llm = Ollama(
+            model="llama2", 
+            base_url="http://host.docker.internal:11434",
+            request_timeout=60.0  # Add timeout
+        )
+
+    async def process_documents(self) -> List[Document]:
+        """Load and process documents from the docs directory."""
+        if not self.docs_dir.exists():
+            raise FileNotFoundError(f"Directory not found: {self.docs_dir}")
+            
         try:
-            # Initialize Qdrant client
-            self.client = QdrantClient("localhost", port=6333)
+            # List all PDF files first
+            pdf_files = list(self.docs_dir.glob("*.pdf"))
+            logger.info(f"Found PDF files: {[f.name for f in pdf_files]}")
             
-            # Initialize embedding model with batching
-            self.embed_model = HuggingFaceEmbedding(
-                model_name=embedding_model,
-                embed_batch_size=32
+            reader = SimpleDirectoryReader(
+                str(self.docs_dir),
+                recursive=True,
+                filename_as_id=True,
+                required_exts=[".pdf"],
+                num_files_limit=10,
+                file_metadata=lambda filename: {"file": Path(filename).name}  # Add filename to metadata
             )
+            self.documents = reader.load_data()
             
-            # Setup vector store
+            # Log details about loaded documents
+            for doc in self.documents:
+                logger.info(f"Loaded document chunk: {doc.metadata.get('file', 'unknown')} - {len(doc.text)} chars")
+            
+            logger.info(f"Total documents/chunks loaded: {len(self.documents)}")
+            return self.documents
+            
+        except Exception as e:
+            logger.error(f"Error processing documents: {str(e)}")
+            raise
+
+    def setup_vector_store(self):
+        """Initialize vector store with Qdrant."""
+        try:
+            if not self.documents:
+                raise ValueError("No documents loaded. Call process_documents first.")
+                
+            # Set the default embedding model
+            Settings.embed_model = self.embed_model
+                
             self.vector_store = QdrantVectorStore(
-                client=self.client,
-                collection_name=collection_name,
+                client=self.qdrant_client,
+                collection_name=self.collection_name,
                 embedding_function=self.embed_model
             )
             
-            # Initialize reranker
-            self.reranker = SentenceTransformerRerank(
-                model=rerank_model,
-                top_n=3
+            # Create storage context and index
+            storage_context = StorageContext.from_defaults(
+                vector_store=self.vector_store
             )
             
-            # Create optimized service context
-            service_context = ServiceContext.from_defaults(
-                embed_model=self.embed_model,
-                chunk_size=1024,
-                chunk_overlap=200
+            self.index = VectorStoreIndex.from_documents(
+                self.documents,
+                storage_context=storage_context,
+                embed_model=self.embed_model
             )
             
-            # Create index with optimized settings
-            self.index = VectorStoreIndex.from_vector_store(
-                vector_store=self.vector_store,
-                service_context=service_context
-            )
+            logger.info("Vector store and index initialized")
+            return self.vector_store
             
-            logger.info("DocumentQuerier initialized successfully")
         except Exception as e:
-            logger.error(f"Failed to initialize DocumentQuerier: {e}")
+            logger.error(f"Error setting up vector store: {str(e)}")
+            raise
 
-    def query(self, question: str, num_results: int = 3) -> Response:
-        """Query the document index."""
-        query_engine = self.index.as_query_engine(
-            similarity_top_k=num_results,
-            response_mode="no_text"  # Just return the relevant chunks
-        )
-        response = query_engine.query(question)
-        return response
-
-    def print_results(self, response: Response):
-        """Print query results in a readable format."""
-        print("\n=== Query Results ===\n")
+    async def query(self, query_text: str) -> str:
+        """Query the vector store."""
+        if not self.index:
+            raise ValueError("Index not initialized. Call setup_vector_store first.")
         
-        if hasattr(response, 'source_nodes'):
-            for node in response.source_nodes:
-                print(f"Node: {node.text}")
-        else:
-            print("No source nodes found in the response.") 
+        # Create query engine with our LLM
+        query_engine = self.index.as_query_engine(
+            llm=self.llm,
+            streaming=False
+        )
+        
+        # Execute query
+        response = query_engine.query(query_text)
+        return str(response)
+
+    def close(self):
+        """Close connections."""
+        if hasattr(self, 'qdrant_client'):
+            self.qdrant_client.close()

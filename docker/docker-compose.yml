@@ -12,6 +12,8 @@ services:
       - qdrant
     networks:
       - rag-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   qdrant:
     container_name: qdrant
