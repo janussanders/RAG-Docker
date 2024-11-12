@@ -13,6 +13,10 @@ from rich import print as rprint
 from fastapi import FastAPI
 from transformers import logging as tf_logging
 from huggingface_hub import logging as hf_logging
+from logging.handlers import RotatingFileHandler
+import sys
+from contextlib import contextmanager
+from io import StringIO
 
 # Enable Metal optimizations for Apple Silicon
 os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
@@ -33,20 +37,46 @@ hf_logging.set_verbosity_error()
 
 from .query_docs import DocumentQuerier
 
-# Setup file handler for health checks
-health_check_logger = logging.getLogger('health_checks')
-health_check_logger.setLevel(logging.INFO)
-file_handler = logging.FileHandler('logs/health_checks.log')
-file_handler.setFormatter(logging.Formatter('[%(asctime)s] %(message)s'))
-health_check_logger.addHandler(file_handler)
+# Create logs directory if it doesn't exist
+log_dir = Path("logs")
+log_dir.mkdir(exist_ok=True)
 
-console = Console()
+# Setup different loggers
+def setup_loggers():
+    # Main application logger
+    app_logger = logging.getLogger('app')
+    app_logger.setLevel(logging.INFO)
+    app_handler = RotatingFileHandler(
+        'logs/app.log',
+        maxBytes=1024*1024,  # 1MB
+        backupCount=5
+    )
+    app_handler.setFormatter(
+        logging.Formatter('%(asctime)s | %(levelname)-8s | %(name)s:%(funcName)s:%(lineno)d - %(message)s')
+    )
+    app_logger.addHandler(app_handler)
+
+    # Model download logger
+    model_logger = logging.getLogger('model_downloads')
+    model_logger.setLevel(logging.INFO)
+    model_handler = RotatingFileHandler(
+        'logs/model_downloads.log',
+        maxBytes=1024*1024,
+        backupCount=3
+    )
+    model_handler.setFormatter(
+        logging.Formatter('%(asctime)s | %(levelname)-8s | %(name)s:%(funcName)s:%(lineno)d - %(message)s')
+    )
+    model_logger.addHandler(model_handler)
 
 app = FastAPI()
 
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"}
+
+# Initialize console
+console = Console()
 
 async def wait_for_services(timeout: int = 30):
     """Wait for services to be ready"""
@@ -121,28 +151,40 @@ async def interactive_session(querier):
             rprint(f"\n[red]Error: {str(e)}[/red]")
             rprint("[dim]Please try again or type 'exit' to quit.[/dim]")
 
+@contextmanager
+def suppress_stdout():
+    """Context manager to temporarily suppress stdout"""
+    stdout = sys.stdout
+    stderr = sys.stderr
+    # Redirect stdout/stderr to StringIO
+    sys.stdout = StringIO()
+    sys.stderr = StringIO()
+    try:
+        yield
+    finally:
+        # Restore original stdout/stderr
+        sys.stdout = stdout
+        sys.stderr = stderr
+
 async def main():
     try:
         # Wait for services
         await wait_for_services()
         
-        # Initialize document querier
-        querier = DocumentQuerier()
-        
-        # Process documents and setup vector store
-        documents = await querier.process_documents()
-        vector_store = querier.setup_vector_store()
+        # Suppress console output during model loading
+        with suppress_stdout():
+            # Initialize document querier
+            querier = DocumentQuerier()
+            
+            # Process documents and setup vector store
+            documents = await querier.process_documents()
+            vector_store = querier.setup_vector_store()
         
         logger.success("RAG system initialized successfully!")
         
-        # Start both the API server and interactive mode if requested
+        # Start interactive session
         if args.interactive:
-            import uvicorn
-            server = uvicorn.Server(uvicorn.Config(app, host="0.0.0.0", port=8000, log_level="error"))
-            await asyncio.gather(
-                server.serve(),
-                interactive_session(querier)
-            )
+            await interactive_session(querier)
         
     except Exception as e:
         logger.error(f"Error in main: {str(e)}")
