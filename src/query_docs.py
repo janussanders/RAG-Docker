@@ -44,12 +44,24 @@ class DocumentQuerier:
         self.vector_store = None
         self.index = None
         
-        # Initialize LLM with much longer timeout
+        # Initialize LLM with a smaller model
         self.llm = Ollama(
-            model="llama2", 
+            model="llama2:7b-chat", 
             base_url="http://host.docker.internal:11434",
-            request_timeout=180.0  # 3 minutes to be safe
+            request_timeout=180.0
         )
+        
+        # Add this line to pull the model
+        self._pull_model()
+
+    def _pull_model(self):
+        """Pull the Ollama model if it's not already available."""
+        try:
+            self.llm.client.pull(self.llm.model)
+            logger.info(f"Successfully pulled model: {self.llm.model}")
+        except Exception as e:
+            logger.error(f"Failed to pull model: {self.llm.model}. Error: {str(e)}")
+            raise
 
     async def process_documents(self) -> List[Document]:
         """Load and process documents from the docs directory."""
