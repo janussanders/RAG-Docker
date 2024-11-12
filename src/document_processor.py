@@ -6,16 +6,16 @@ from typing import List, Optional
 from pathlib import Path
 from loguru import logger
 from llama_index.core import (
-    SimpleDirectoryReader,
-    ServiceContext,
-    StorageContext,
+    Settings,
     VectorStoreIndex,
-    load_index_from_storage,
+    SimpleDirectoryReader,
+    ServiceContext
 )
-from llama_index.vector_stores import QdrantVectorStore
-from llama_index.embeddings import HuggingFaceEmbedding
+from llama_index.vector_stores.qdrant import QdrantVectorStore
+from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from qdrant_client.async_qdrant_client import AsyncQdrantClient
 from qdrant_client.http.models import Distance, VectorParams
+from llama_index.llms.ollama import Ollama
 
 class DocumentProcessor:
     def __init__(
