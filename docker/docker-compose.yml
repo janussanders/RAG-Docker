@@ -18,10 +18,13 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     command: >
-      sh -c "
-        ollama pull orca-mini &&
-        python main.py
-      "
+      sh -c '
+      echo "Waiting 3 minutes for Ollama to initialize..." &&
+      for i in {180..1}; do
+        echo -ne "\rStarting in $$i seconds...   \r";
+        sleep 1;
+      done &&
+      python -m src.main'
     healthcheck:
       test: ["CMD", "curl", "-f", "http://ollama:11434/health"]
       interval: 30s
