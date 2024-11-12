@@ -18,8 +18,6 @@ else:
     device = torch.device("cpu")
     logger.info("! Using CPU (MPS not available)")
 
-from .document_processor import DocumentProcessor
-from .process_docs import process_documents, create_chunks, setup_vector_store
 from .query_docs import DocumentQuerier
 
 async def wait_for_services(timeout: int = 30):
@@ -60,12 +58,12 @@ async def main():
         
         # Process documents and setup vector store
         documents = await querier.process_documents()
-        vector_store = await querier.setup_vector_store()
+        vector_store = querier.setup_vector_store()
         
         # Run test query
         test_query = "What is DSPy and what are its main features?"
         response = querier.query(test_query)
-        querier.print_results(response)
+        logger.info(f"Query response: {response}")
         
         logger.success("RAG system initialized and tested successfully!")
         

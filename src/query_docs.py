@@ -13,7 +13,7 @@ from llama_index.core import (
 from llama_index.core.node_parser import SentenceSplitter
 from llama_index.vector_stores.qdrant import QdrantVectorStore
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
-from qdrant_client import QdrantClient, AsyncQdrantClient
+from qdrant_client import QdrantClient
 
 class DocumentQuerier:
     def __init__(
@@ -28,21 +28,18 @@ class DocumentQuerier:
         self.collection_name = collection_name
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
+        self.documents = None  # Add documents storage
         
         # Initialize clients
-        self.qdrant_client = AsyncQdrantClient(url="qdrant", port=6333)
+        self.qdrant_client = QdrantClient(url="qdrant", port=6333)
         
         # Initialize embedding model
         self.embed_model = HuggingFaceEmbedding(
             model_name=embedding_model
         )
         
-        # Initialize chunker
-        self.chunker = SentenceSplitter(
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap,
-            paragraph_separator="\n\n"
-        )
+        self.vector_store = None
+        self.index = None
 
     async def process_documents(self) -> List[Document]:
         """Load and process documents from the docs directory."""
@@ -50,19 +47,52 @@ class DocumentQuerier:
             raise FileNotFoundError(f"Directory not found: {self.docs_dir}")
             
         try:
+            # List all PDF files
+            pdf_files = list(self.docs_dir.glob("*.pdf"))
+            logger.info(f"Found {len(pdf_files)} PDF files")
+            
             reader = SimpleDirectoryReader(
                 str(self.docs_dir),
                 recursive=True,
                 filename_as_id=True,
-                file_extractor={
-                    ".pdf": "default"
-                }
+                required_exts=[".pdf"],  # Only process PDFs
+                num_files_limit=10  # Limit for testing
             )
-            documents = reader.load_data()
-            logger.info(f"Loaded {len(documents)} documents from {self.docs_dir}")
-            return documents
+            self.documents = reader.load_data()
+            logger.info(f"Loaded {len(self.documents)} documents from {self.docs_dir}")
+            return self.documents
+            
         except Exception as e:
-            logger.error(f"Error loading documents: {str(e)}")
+            logger.error(f"Error processing documents: {str(e)}")
+            raise
+
+    def setup_vector_store(self):
+        """Initialize vector store with Qdrant."""
+        try:
+            if not self.documents:
+                raise ValueError("No documents loaded. Call process_documents first.")
+                
+            self.vector_store = QdrantVectorStore(
+                client=self.qdrant_client,
+                collection_name=self.collection_name,
+                embedding_function=self.embed_model
+            )
+            
+            # Create storage context and index
+            storage_context = StorageContext.from_defaults(
+                vector_store=self.vector_store
+            )
+            
+            self.index = VectorStoreIndex.from_documents(
+                self.documents,
+                storage_context=storage_context
+            )
+            
+            logger.info("Vector store and index initialized")
+            return self.vector_store
+            
+        except Exception as e:
+            logger.error(f"Error setting up vector store: {str(e)}")
             raise
 
     async def query(self, query_text: str) -> str:
