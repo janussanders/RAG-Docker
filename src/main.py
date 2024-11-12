@@ -10,6 +10,9 @@ import logging
 from rich.console import Console
 from rich.spinner import Spinner
 from rich import print as rprint
+from fastapi import FastAPI
+from transformers import logging as tf_logging
+from huggingface_hub import logging as hf_logging
 
 # Enable Metal optimizations for Apple Silicon
 os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
@@ -22,6 +25,12 @@ else:
     device = torch.device("cpu")
     logger.info("! Using CPU (MPS not available)")
 
+# Disable progress bars and reduce logging noise
+os.environ['HF_HUB_DISABLE_PROGRESS_BARS'] = '1'
+os.environ['TOKENIZERS_PARALLELISM'] = 'false'
+tf_logging.set_verbosity_error()
+hf_logging.set_verbosity_error()
+
 from .query_docs import DocumentQuerier
 
 # Setup file handler for health checks
@@ -31,45 +40,49 @@ file_handler = logging.FileHandler('logs/health_checks.log')
 file_handler.setFormatter(logging.Formatter('[%(asctime)s] %(message)s'))
 health_check_logger.addHandler(file_handler)
 
+console = Console()
+
+app = FastAPI()
+
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy"}
+
 async def wait_for_services(timeout: int = 30):
     """Wait for services to be ready"""
     import aiohttp
     from datetime import datetime
-    
-    log_file = "logs/health_checks.log"
-    
-    def log_message(msg: str):
-        timestamp = datetime.now().isoformat()
-        with open(log_file, "a") as f:
-            f.write(f"[{timestamp}] {msg}\n")
     
     services = {
         'Qdrant': 'http://qdrant:6333/',
         'Ollama': 'http://ollama:11434/api/version'
     }
     
+    console.print("[yellow]Waiting for services to initialize...[/yellow]")
+    
     async with aiohttp.ClientSession() as session:
         for service, url in services.items():
-            log_message(f"Waiting for {service}...")
             attempt = 1
             while True:
                 try:
                     async with session.get(url) as response:
                         if response.status == 200:
-                            log_message(f"✓ {service} is ready (attempt {attempt})")
+                            console.print(f"[green]✓ {service} is ready[/green]")
                             break
                 except aiohttp.ClientError:
                     if attempt >= timeout:
                         error_msg = f"ERROR: {service} is not available after {timeout} seconds"
-                        log_message(error_msg)
                         raise RuntimeError(error_msg)
                     attempt += 1
                     await asyncio.sleep(1)
-
-console = Console()
+                    if attempt % 5 == 0:  # Only print every 5 attempts
+                        console.print(f"[yellow]Still waiting for {service}... (attempt {attempt})[/yellow]")
 
 async def interactive_session(querier):
     """Run an interactive query session in the terminal with rich formatting."""
+    # Clear the screen first
+    console.clear()
+    
     rprint("\n[bold blue]=== DSPy Documentation Query System ===[/bold blue]")
     rprint("[dim]Type 'exit' or 'quit' to end the session")
     rprint("[dim]Type 'help' for instructions[/dim]")
@@ -86,9 +99,9 @@ async def interactive_session(querier):
             
             if query.lower() == 'help':
                 rprint("\n[bold]Instructions:[/bold]")
-                rprint("- Ask any question about DSPy")
+                rprint("- Ask any question about the DSPy documentation")
+                rprint("- Questions can be about concepts, usage, or examples")
                 rprint("- Type 'exit' or 'quit' to end the session")
-                rprint("[dim]Type 'help' for instructions[/dim]")
                 continue
             
             if not query:
@@ -122,9 +135,14 @@ async def main():
         
         logger.success("RAG system initialized successfully!")
         
-        # Start interactive mode if requested
+        # Start both the API server and interactive mode if requested
         if args.interactive:
-            await interactive_session(querier)
+            import uvicorn
+            server = uvicorn.Server(uvicorn.Config(app, host="0.0.0.0", port=8000, log_level="error"))
+            await asyncio.gather(
+                server.serve(),
+                interactive_session(querier)
+            )
         
     except Exception as e:
         logger.error(f"Error in main: {str(e)}")
