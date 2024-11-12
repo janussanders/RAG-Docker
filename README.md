@@ -1,3 +1,4 @@
+moving-readme-file
 # RAG-powered DSPy Documentation Assistant
 
 A Docker-based RAG (Retrieval Augmented Generation) system that provides intelligent querying of DSPy documentation using Ollama, Qdrant, and LlamaIndex.
@@ -141,3 +142,4 @@ environment:
 ## 🤝 Contributing
 
 [Your Contributing Guidelines]
+=======
