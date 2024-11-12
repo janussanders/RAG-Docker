@@ -72,4 +72,8 @@ coverage.xml
 *.cover
 *.py,cover
 .hypothesis/
-.pytest_cache/ 
+.pytest_cache/
+
+# Qdrant storage
+qdrant_storage/
+qdrant_storage/*
