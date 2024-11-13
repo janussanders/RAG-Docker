@@ -1,14 +1,19 @@
-moving-readme-file
 # RAG-powered DSPy Documentation Assistant
 
 A Docker-based RAG (Retrieval Augmented Generation) system that provides intelligent querying of DSPy documentation using Ollama, Qdrant, and LlamaIndex.
 
 ## 🚀 Features
 
+- **Optimized for Apple MacBook Air M3 - Apple Silicon - 8Gb Internal Memory
 - **RAG Implementation**: Uses LlamaIndex for document processing and retrieval
 - **Vector Storage**: Qdrant for efficient vector storage and similarity search
 - **Local LLM**: Ollama integration with orca-mini model
 - **Optimizations**:
+  - Leverages Mac Performance Shaders (MPS)
+  - Docker Abstraction
+  - Robust Error Handling
+  - Lighweight Inference Models
+  - Streamlight Query Implementation
   - Sentence-level chunking with overlap
   - Cross-encoder reranking
   - Custom prompt templates
@@ -20,6 +25,7 @@ A Docker-based RAG (Retrieval Augmented Generation) system that provides intelli
 - macOS with Apple Silicon (M1/M2/M3)
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/)
 - [Ollama Desktop](https://ollama.ai)
+- [Streamlight](https://streamlit.io/)
 
 ## 🔧 System Architecture
 ┌─────────────────┐ ┌──────────────┐ ┌──────────────┐
@@ -39,9 +45,7 @@ cd <repository-name>
 2. Start Ollama Desktop application
 
 3. Pull the required model:
-```bash
-ollama pull orca-mini
-```
+- This should be automatic in the Dockerfile
 
 4. Build and run with Docker Compose:
 ```bash
@@ -79,26 +83,10 @@ docker compose up --build
 docker compose up
 ```
 
-3. Interact with the CLI interface:
-```
-=== DSPy Documentation Query System ===
-Type 'exit' or 'quit' to end the session
-Type 'help' for instructions
-======================================
-
-> your question here
-```
+3. Interact with Streamlit:
+- [Streanlit on Localhost](http://localhost:6333/dashboard?ref=dailydoseofds.com)
 
 ## 🔧 Configuration
-
-Key configuration parameters in `docker-compose.yml`:
-```yaml
-environment:
-  - CHUNK_SIZE=1024
-  - CHUNK_OVERLAP=200
-  - COLLECTION_NAME=dspy_docs
-  - EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
-```
 
 ## 🏗 Architecture Details
 
