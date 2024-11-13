@@ -84,7 +84,7 @@ docker compose up
 ```
 
 3. Interact with Streamlit:
-- [Streanlit on Localhost](http://localhost:6333/dashboard?ref=dailydoseofds.com)
+- [Streamlit on Localhost](http://localhost:6333/dashboard?ref=dailydoseofds.com)
 
 ## 🔧 Configuration
 
