@@ -126,14 +126,14 @@ class DocumentQuerier:
         try:
             logger.info("Initializing query engine...")
             
-            # Initialize LLM with robust connection settings
+            # Use tinyllama - one of the smallest models available
             llm = Ollama(
-                model="orca-mini",  # Make sure this matches your pulled model
+                model="tinyllama",  # Much smaller model
                 base_url="http://ollama:11434",
-                request_timeout=120.0,  # Increase timeout
+                request_timeout=120.0,
                 additional_kwargs={
-                    "num_ctx": 4096,
-                    "num_predict": 256,
+                    "num_ctx": 1024,     # Further reduced context
+                    "num_predict": 128,   # Smaller prediction window
                 }
             )
             

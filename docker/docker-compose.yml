@@ -27,7 +27,7 @@ services:
         sleep 2
       done &&
       echo "Ollama is ready!" &&
-      ollama pull orca-mini &&
+      ollama pull tinyllama &&
       cd /app &&
       PYTHONPATH=/app streamlit run src/app.py --server.address=0.0.0.0 --server.port=8501'
     stdin_open: true
