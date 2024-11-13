@@ -65,273 +65,112 @@ qa_prompt_tmpl = PromptTemplate(
 )
 
 class DocumentQuerier:
-    def __init__(
-        self,
-        docs_dir: str = './docs',
-        collection_name: str = 'dspy_docs',
-        embedding_model: str = 'sentence-transformers/all-MiniLM-L6-v2',
-        chunk_size: int = 1024,
-        chunk_overlap: int = 200
-    ):
-        self.docs_dir = Path(docs_dir)
+    def __init__(self, docs_dir: Path, collection_name: str):
+        self.docs_dir = docs_dir
         self.collection_name = collection_name
-        self.chunk_size = chunk_size
-        self.chunk_overlap = chunk_overlap
-        self.documents = None
-        
-        # Initialize clients
-        self.qdrant_client = QdrantClient(url="qdrant", port=6333)
-        
-        # Initialize embedding model
-        self.embed_model = HuggingFaceEmbedding(
-            model_name=embedding_model
-        )
-        
-        # Initialize LLM
-        logger.info("Initializing Ollama with orca-mini model...")
-        self.llm = Ollama(
-            model="orca-mini",
-            base_url=os.getenv('OLLAMA_BASE_URL', 'http://ollama:11434'),
-            request_timeout=120.0
-        )
-        
-        # Initialize reranker
-        self.reranker = SentenceTransformerRerank(
-            model="cross-encoder/ms-marco-MiniLM-L-2-v2",
-            top_n=3
-        )
-        
-        self.vector_store = None
-        self.index = None
         self.query_engine = None
         
-        # Store the prompt template as instance variable
-        self.qa_prompt = qa_prompt_tmpl
-        
-        # Add device detection
-        if torch.backends.mps.is_available():
-            logger.info("Using MPS (Metal Performance Shaders)")
-            self.device = torch.device("mps")
-        elif torch.cuda.is_available():
-            logger.info("Using CUDA GPU")
-            self.device = torch.device("cuda")
-        else:
-            logger.info("Using CPU")
-            self.device = torch.device("cpu")
-        
-        # Move models to appropriate device
-        self.setup_models()
-        
-    def setup_models(self):
-        """Setup and move models to appropriate device"""
-        try:
-            # Move any PyTorch models to the detected device
-            if hasattr(self, 'embedding_model'):
-                self.embedding_model = self.embedding_model.to(self.device)
-                
-            if hasattr(self, 'query_engine') and hasattr(self.query_engine, 'model'):
-                self.query_engine.model = self.query_engine.model.to(self.device)
-                
-            logger.info(f"Models moved to device: {self.device}")
-            
-        except Exception as e:
-            logger.error(f"Error setting up models: {str(e)}")
-            raise
-        
-    def _initialize_model(self):
-        # Initialize your model here
-        pass
-        
-    def process_documents(self):
-        """Synchronous document processing"""
-        try:
-            # List all PDF files
-            pdf_files = list(self.docs_dir.glob("*.pdf"))
-            logger.info(f"Found PDF files: {[f.name for f in pdf_files]}")
-            
-            if not pdf_files:
-                raise FileNotFoundError(f"No PDF files found in {self.docs_dir}")
-                
-            reader = SimpleDirectoryReader(
-                str(self.docs_dir),
-                recursive=True,
-                filename_as_id=True,
-                required_exts=[".pdf"]
-            )
-            
-            self.documents = reader.load_data()
-            
-            # Verify documents after loading
-            if not self.verify_documents():
-                raise ValueError("Document verification failed")
-                
-            return self.documents
-            
-        except Exception as e:
-            logger.exception("Error processing documents")
-            raise
+        # Initialize immediately
+        self.setup_vector_store()
+        self.initialize_query_engine()
         
     def setup_vector_store(self):
-        """Initialize vector store with Qdrant."""
+        """Setup the vector store"""
         try:
-            if not self.documents:
-                raise ValueError("No documents loaded. Call process_documents first.")
+            logger.info("Setting up vector store...")
             
-            logger.info(f"Starting setup with {len(self.documents)} documents")
+            # Initialize embedding model
+            embed_model = HuggingFaceEmbedding(model_name="BAAI/bge-small-en-v1.5")
             
-            # Configure settings
-            logger.info("Configuring settings...")
-            Settings.llm = self.llm
-            Settings.embed_model = self.embed_model
-            Settings.node_parser = SentenceSplitter(
-                chunk_size=self.chunk_size,
-                chunk_overlap=self.chunk_overlap
+            # Initialize Qdrant client with explicit timeout
+            client = QdrantClient(
+                "qdrant", 
+                port=6333,
+                timeout=60.0  # Increase timeout
             )
-            logger.info("Settings configured successfully")
             
-            # Generate UUIDs for documents
-            logger.info("Generating UUIDs for documents...")
-            for doc in self.documents:
-                doc.doc_id = str(uuid.uuid4())
-            logger.info("UUIDs generated successfully")
-            
-            # Verify Qdrant client
-            logger.info("Verifying Qdrant client connection...")
-            if not self.qdrant_client:
-                raise ValueError("Qdrant client not initialized")
-            try:
-                # Test the connection
-                self.qdrant_client.get_collections()
-                logger.info("Qdrant client connection verified")
-            except Exception as e:
-                raise ConnectionError(f"Failed to connect to Qdrant: {str(e)}")
-            
-            # Initialize vector store
-            logger.info("Initializing vector store...")
-            self.vector_store = QdrantVectorStore(
-                client=self.qdrant_client,
+            # Ensure collection exists
+            client.recreate_collection(
                 collection_name=self.collection_name,
-                metadata_payload_key="metadata"
+                vectors_config={
+                    "size": 384,  # BGE-small dimension
+                    "distance": "Cosine"
+                }
+            )
+            
+            # Setup vector store
+            vector_store = QdrantVectorStore(
+                client=client,
+                collection_name=self.collection_name
             )
             
             # Create storage context
-            storage_context = StorageContext.from_defaults(
-                vector_store=self.vector_store
-            )
+            self.storage_context = StorageContext.from_defaults(vector_store=vector_store)
             
-            # Create index from documents
-            logger.info("Creating vector index from documents...")
+            # Load documents
+            documents = SimpleDirectoryReader(self.docs_dir).load_data()
+            
+            # Create index
             self.index = VectorStoreIndex.from_documents(
-                documents=self.documents,
-                storage_context=storage_context,
-                show_progress=True
+                documents,
+                storage_context=self.storage_context,
+                embed_model=embed_model
             )
-            
-            # Create query engine with the instance prompt template
-            logger.info("Creating query engine...")
-            self.query_engine = self.index.as_query_engine(
-                text_qa_template=self.qa_prompt
-            )
-            
-            if not self.query_engine:
-                raise ValueError("Failed to create query engine")
-            logger.info("Query engine created successfully")
-            return self.vector_store
             
         except Exception as e:
             logger.error(f"Error setting up vector store: {str(e)}")
             raise
-
-    def close(self):
-        """Close connections."""
-        if hasattr(self, 'qdrant_client'):
-            self.qdrant_client.close()
-
-    def _verify_initialization(self):
-        """Verify that all required components are initialized."""
-        if not self.qdrant_client:
-            raise RuntimeError("Qdrant client not initialized")
-        if not self.embed_model:
-            raise RuntimeError("Embedding model not initialized")
-        if not self.llm:
-            raise RuntimeError("LLM not initialized")
-        if not self.reranker:
-            raise RuntimeError("Reranker not initialized")
-        logger.info("All components initialized successfully")
-
-    async def test_query_pipeline(self):
-        """Test the entire query pipeline."""
+            
+    def initialize_query_engine(self):
+        """Initialize the query engine"""
         try:
-            logger.info("Testing query pipeline...")
+            logger.info("Initializing query engine...")
             
-            # 1. Verify documents
-            logger.info("1. Verifying documents...")
-            if not self.verify_documents():
-                raise RuntimeError("Document verification failed")
-                
-            # 2. Verify vector store
-            logger.info("2. Verifying vector store...")
-            if not self.vector_store:
-                raise RuntimeError("Vector store not initialized")
-                
-            # 3. Verify query engine
-            logger.info("3. Verifying query engine...")
-            if not self.query_engine:
-                raise RuntimeError("Query engine not initialized")
-                
-            # 4. Test simple query
-            logger.info("4. Testing simple query...")
-            test_query = "What documents are available?"
-            response = await self.query(test_query)
-            logger.info(f"Test query response: {response}")
+            # Initialize LLM with robust connection settings
+            llm = Ollama(
+                model="orca-mini",  # Make sure this matches your pulled model
+                base_url="http://ollama:11434",
+                request_timeout=120.0,  # Increase timeout
+                additional_kwargs={
+                    "num_ctx": 4096,
+                    "num_predict": 256,
+                }
+            )
             
-            logger.info("Query pipeline test completed successfully")
-            return True
+            # Test connection
+            try:
+                logger.info("Testing Ollama connection...")
+                llm.complete("test")
+                logger.info("Ollama connection successful!")
+            except Exception as e:
+                logger.error(f"Ollama connection test failed: {str(e)}")
+                raise
+            
+            # Rest of the initialization...
+            rerank = SentenceTransformerRerank(
+                model="cross-encoder/ms-marco-MiniLM-L-6-v2",
+                top_n=3
+            )
+            
+            self.query_engine = self.index.as_query_engine(
+                llm=llm,
+                node_postprocessors=[rerank],
+                text_qa_template=qa_prompt_tmpl
+            )
             
         except Exception as e:
-            logger.exception("Query pipeline test failed")
-            return False
-
-    def verify_documents(self):
-        """Verify that documents are properly loaded."""
-        if not self.documents:
-            logger.error("No documents loaded!")
-            return False
-            
-        logger.info(f"Number of documents: {len(self.documents)}")
-        for i, doc in enumerate(self.documents):
-            logger.info(f"Document {i+1}:")
-            logger.info(f"  - ID: {doc.doc_id}")
-            logger.info(f"  - Length: {len(doc.text)} characters")
-            logger.info(f"  - Preview: {doc.text[:100]}...")
-        return True
-
-    async def test_query_engine(self):
-        """Test if the query engine is working."""
+            logger.error(f"Error initializing query engine: {str(e)}")
+            raise
+        
+    def query(self, query_text: str) -> str:
+        """Query the documentation"""
         try:
-            test_query = "test"
-            logger.info("Testing query engine...")
-            if not self.query_engine:
+            if self.query_engine is None:
                 raise ValueError("Query engine not initialized")
-            response = await self.query_engine.aquery(test_query)
-            logger.info(f"Test query successful: {str(response)[:100]}")
-            return True
-        except Exception as e:
-            logger.error(f"Query engine test failed: {e}")
-            return False
-
-    def query_sync(self, query_text: str) -> str:
-        """Synchronous query processing"""
-        if self.query_engine is None:
-            logger.error("Query engine not initialized")
-            return "Error: Query engine not initialized"
-            
-        try:
-            logger.info(f"Processing query: {query_text}")
-            response = self.query_engine.query(query_text)
-            logger.info(f"Query successful: {str(response)[:100]}...")
-            return str(response)
                 
+            response = self.query_engine.query(query_text)
+            return response.response
+            
         except Exception as e:
-            logger.error(f"Error processing query: {str(e)}")
-            return f"Error: {str(e)}"
+            logger.error(f"Query error: {str(e)}")
+            return f"Error processing query: {str(e)}"

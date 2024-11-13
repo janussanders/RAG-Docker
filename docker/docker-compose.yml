@@ -41,14 +41,17 @@ services:
   qdrant:
     container_name: qdrant
     image: qdrant/qdrant
+    volumes:
+      - qdrant_storage:/qdrant/storage
+    environment:
+      - QDRANT_ALLOW_RECOVERY=true
     ports:
       - "6333:6333"
       - "6334:6334"
-    volumes:
-      - ../qdrant_storage:/qdrant/storage
     restart: unless-stopped
     networks:
       - rag-network
+    command: sh -c "mkdir -p /qdrant/storage && chmod 777 /qdrant/storage && /qdrant/qdrant"
 
   ollama:
     container_name: ollama
@@ -62,7 +65,9 @@ services:
     deploy:
       resources:
         reservations:
-          memory: 2GB
+          memory: 8GB
+        limits:
+          memory: 10GB
 
 volumes:
   qdrant_storage:
