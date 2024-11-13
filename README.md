@@ -134,12 +134,4 @@ environment:
    - Enable MPS acceleration
    - Adjust batch sizes
    - Monitor resource usage
-
-## 📝 License
-
-[Your License Here]
-
-## 🤝 Contributing
-
-[Your Contributing Guidelines]
 =======
