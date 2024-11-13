@@ -1,6 +1,8 @@
 import streamlit as st
 from pathlib import Path
-from src.query_docs import DocumentQuerier
+from query_docs import DocumentQuerier
+import os
+import requests
 
 class StreamlitApp:
     def __init__(self):
@@ -9,6 +11,8 @@ class StreamlitApp:
             page_icon="📚",
             layout="wide"
         )
+        
+        self.ollama_url = os.getenv('OLLAMA_BASE_URL', 'http://ollama:11434')
         
         # Initialize the querier with device support
         if 'querier' not in st.session_state:
@@ -21,8 +25,24 @@ class StreamlitApp:
             with st.sidebar:
                 st.info(f"Using device: {st.session_state.querier.device}")
     
+    def check_ollama_connection(self):
+        """Test Ollama connectivity"""
+        try:
+            response = requests.get(f"{self.ollama_url}/api/health")
+            return response.status_code == 200
+        except requests.exceptions.RequestException as e:
+            st.error(f"Cannot connect to Ollama: {str(e)}")
+            return False
+    
     def render(self):
         st.title("📚 Documentation Assistant")
+        
+        # Add connection status to sidebar
+        with st.sidebar:
+            if self.check_ollama_connection():
+                st.success("Connected to Ollama")
+            else:
+                st.error("Cannot connect to Ollama")
         
         # Initialize chat history
         if "messages" not in st.session_state:

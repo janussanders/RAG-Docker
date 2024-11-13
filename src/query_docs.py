@@ -24,6 +24,7 @@ import asyncio
 import json
 import sys
 import torch
+import os
 
 # Configure logging
 logger.remove()  # Remove default handler
@@ -90,8 +91,8 @@ class DocumentQuerier:
         logger.info("Initializing Ollama with orca-mini model...")
         self.llm = Ollama(
             model="orca-mini",
-            base_url="http://host.docker.internal:11434",
-            request_timeout=180.0
+            base_url=os.getenv('OLLAMA_BASE_URL', 'http://ollama:11434'),
+            request_timeout=120.0
         )
         
         # Initialize reranker

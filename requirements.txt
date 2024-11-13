@@ -38,3 +38,4 @@ pytest-asyncio>=0.21.1
 
 # Optional dependencies for enhanced functionality
 aioconsole==0.7.1  # Only if still needed for console interactions
+requests>=2.31.0

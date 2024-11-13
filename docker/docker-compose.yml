@@ -15,17 +15,21 @@ services:
       - rag-network
     environment:
       - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_HOST=http://ollama:11434
+      - PYTHONPATH=/app
     extra_hosts:
       - "host.docker.internal:host-gateway"
     command: >
       sh -c '
       echo "Waiting for Ollama to initialize..." &&
-      while ! curl -s http://ollama:11434/api/tags >/dev/null; do
-        sleep 1
+      until curl -s -f http://ollama:11434/api/tags >/dev/null 2>&1; do
+        echo "Waiting for Ollama..."
+        sleep 2
       done &&
       echo "Ollama is ready!" &&
       ollama pull orca-mini &&
-      streamlit run src/app.py --server.address=0.0.0.0 --server.port=8501'
+      cd /app &&
+      PYTHONPATH=/app streamlit run src/app.py --server.address=0.0.0.0 --server.port=8501'
     stdin_open: true
     tty: true
     healthcheck:
