@@ -136,7 +136,8 @@ environment:
    - Monitor resource usage
 
 ## 🤝 Special Thanks
-Akshay Pachaar, Avi Chawla on their tutorial [https://www.dailydoseofds.com/a-crash-course-on-building-rag-systems-part-1-with-implementations/](A Crash Course on Building RAG Systems – Part 1 (With Implementation))
+Akshay Pachaar, Avi Chawla: 
+[A Crash Course on Building RAG Systems – Part 1 With Implementation](https://www.dailydoseofds.com/a-crash-course-on-building-rag-systems-part-1-with-implementations/)
 
 
 =======
