@@ -21,10 +21,26 @@ from llama_index.llms.ollama import Ollama
 from llama_index.core.postprocessor import SentenceTransformerRerank
 import uuid  # Add this import at the top
 import asyncio
-from rich.console import Console
-from rich.status import Status
-import aioconsole
-from asyncio import Queue
+import json
+import sys
+import torch
+
+# Configure logging
+logger.remove()  # Remove default handler
+logger.add(
+    "app.log",  # Log to this file
+    rotation="500 MB",  # Rotate when file reaches 500MB
+    level="DEBUG",  # Set minimum level
+    format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+    enqueue=True  # Thread-safe logging
+)
+# Also add console output
+logger.add(
+    sys.stderr,
+    level="INFO",
+    format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>",
+    enqueue=True
+)
 
 # Define a system message to set context for the model
 SYSTEM_MESSAGE = """You are a helpful AI assistant that answers questions based on the provided context. 
@@ -91,11 +107,42 @@ class DocumentQuerier:
         # Store the prompt template as instance variable
         self.qa_prompt = qa_prompt_tmpl
         
+        # Add device detection
+        if torch.backends.mps.is_available():
+            logger.info("Using MPS (Metal Performance Shaders)")
+            self.device = torch.device("mps")
+        elif torch.cuda.is_available():
+            logger.info("Using CUDA GPU")
+            self.device = torch.device("cuda")
+        else:
+            logger.info("Using CPU")
+            self.device = torch.device("cpu")
+        
+        # Move models to appropriate device
+        self.setup_models()
+        
+    def setup_models(self):
+        """Setup and move models to appropriate device"""
+        try:
+            # Move any PyTorch models to the detected device
+            if hasattr(self, 'embedding_model'):
+                self.embedding_model = self.embedding_model.to(self.device)
+                
+            if hasattr(self, 'query_engine') and hasattr(self.query_engine, 'model'):
+                self.query_engine.model = self.query_engine.model.to(self.device)
+                
+            logger.info(f"Models moved to device: {self.device}")
+            
+        except Exception as e:
+            logger.error(f"Error setting up models: {str(e)}")
+            raise
+        
     def _initialize_model(self):
         # Initialize your model here
         pass
         
-    async def process_documents(self) -> List[Document]:
+    def process_documents(self):
+        """Synchronous document processing"""
         try:
             # List all PDF files
             pdf_files = list(self.docs_dir.glob("*.pdf"))
@@ -194,90 +241,6 @@ class DocumentQuerier:
             logger.error(f"Error setting up vector store: {str(e)}")
             raise
 
-    async def query(self, query_text: str) -> Optional[str]:
-        """Process a query and return the response."""
-        console = Console()
-        
-        if self.query_engine is None:
-            logger.error("Query engine not initialized")
-            return "Error: Query engine not initialized"
-            
-        try:
-            logger.info(f"Processing query: {query_text}")
-            
-            # Try aquery first
-            try:
-                logger.info("Attempting async query...")
-                response = await self.query_engine.aquery(query_text)
-                logger.info(f"Async query successful: {str(response)[:100]}...")
-                
-                # If this was the test query, start interactive mode
-                if query_text == "What is DSPy?":
-                    await console.aprint("""
-=== DSPy Documentation Query System ===
-Type 'exit' or 'quit' to end the session
-Type 'help' for instructions
-======================================
-""")
-                    
-                    # Create message queue for async communication
-                    message_queue = Queue()
-                    
-                    async def input_handler():
-                        while True:
-                            try:
-                                # Use aioconsole for async input
-                                user_input = await aioconsole.ainput("> ")
-                                await message_queue.put(user_input.strip())
-                            except asyncio.CancelledError:
-                                break
-                    
-                    async def query_handler():
-                        while True:
-                            try:
-                                user_query = await message_queue.get()
-                                
-                                if not user_query:
-                                    continue
-                                    
-                                if user_query.lower() in ['exit', 'quit']:
-                                    await console.aprint("\nGoodbye!")
-                                    return
-                                    
-                                if user_query.lower() == 'help':
-                                    await console.aprint("""
-Instructions:
-- Enter your question about DSPy
-- Type 'exit' or 'quit' to end the session
-- Type 'help' to see these instructions again
-""")
-                                    continue
-                                
-                                async with Status("Processing query...", console=console):
-                                    query_response = await self.query_engine.aquery(user_query)
-                                    if query_response:
-                                        await console.aprint(f"\nAnswer: {query_response}\n")
-                                    else:
-                                        await console.aprint("\nNo response received. Please try again.\n")
-                                        
-                            except asyncio.CancelledError:
-                                break
-                            except Exception as e:
-                                logger.error(f"Error processing query: {str(e)}")
-                                await console.aprint(f"Error: {str(e)}\n")
-                return str(response)
-                
-            except AttributeError:
-                # If aquery fails, try regular query
-                logger.info("Async query not available, falling back to sync query...")
-                response = self.query_engine.query(query_text)
-                logger.info(f"Sync query successful: {str(response)[:100]}...")
-                return str(response)
-                
-        except Exception as e:
-            logger.error(f"Error processing query: {str(e)}")
-            return f"Error: {str(e)}"
-
     def close(self):
         """Close connections."""
         if hasattr(self, 'qdrant_client'):
@@ -356,92 +319,18 @@ Instructions:
             logger.error(f"Query engine test failed: {e}")
             return False
 
-async def get_response(client, context_str, query_str):
-    formatted_prompt = qa_prompt_tmpl.format(
-        context_str=context_str,
-        query_str=query_str
-    )
-    
-    response = await client.chat(
-        model="orca-mini",  # or your chosen model
-        messages=[
-            {
-                "role": "system",
-                "content": SYSTEM_MESSAGE
-            },
-            {
-                "role": "user",
-                "content": formatted_prompt
-            }
-        ]
-    )
-    
-    return response.message.content
-
-async def get_user_input():
-    """Async wrapper for input function"""
-    loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, input, "> ")
-
-async def run_interactive_session(querier: DocumentQuerier):
-    """Run the interactive query session"""
-    try:
-        # Test the system
-        print("⠸ Testing system...", end='\r')
-        test_response = await querier.query("What is DSPy?")
-        if test_response and "error" not in test_response.lower():
-            print("✓ System is ready")
-            logger.success("RAG system initialized successfully!")
+    def query_sync(self, query_text: str) -> str:
+        """Synchronous query processing"""
+        if self.query_engine is None:
+            logger.error("Query engine not initialized")
+            return "Error: Query engine not initialized"
             
-            # Print welcome message
-            print("\n=== DSPy Documentation Query System ===")
-            print("Type 'exit' or 'quit' to end the session")
-            print("Type 'help' for instructions")
-            print("======================================\n")
-            
-            while True:
-                try:
-                    # Get user input asynchronously
-                    user_query = await asyncio.get_event_loop().run_in_executor(None, input, "> ")
-                    
-                    if not user_query:
-                        continue
-                        
-                    if user_query.lower() in ['exit', 'quit']:
-                        print("\nGoodbye!")
-                        break
-                        
-                    if user_query.lower() == 'help':
-                        print("\nInstructions:")
-                        print("- Enter your question about DSPy")
-                        print("- Type 'exit' or 'quit' to end the session")
-                        print("- Type 'help' to see these instructions again\n")
-                        continue
-                    
-                    print("Processing query...", end='\r')
-                    response = await querier.query(user_query)
-                    print(" " * 50, end='\r')  # Clear processing message
-                    
-                    if response:
-                        print(f"\nAnswer: {response}\n")
-                    else:
-                        print("\nNo response received. Please try again.\n")
-                    
-                except asyncio.CancelledError:
-                    print("\nOperation cancelled.")
-                    break
-                except KeyboardInterrupt:
-                    print("\nGoodbye!")
-                    break
-                except Exception as e:
-                    logger.error(f"Error in query loop: {str(e)}")
-                    print(f"\nError: {str(e)}")
-        else:
-            logger.error("System test failed!")
-            print("✗ System test failed")
-            
-    except Exception as e:
-        logger.exception("Error in interactive session")
-        raise
-    finally:
-        querier.close()
+        try:
+            logger.info(f"Processing query: {query_text}")
+            response = self.query_engine.query(query_text)
+            logger.info(f"Query successful: {str(response)[:100]}...")
+            return str(response)
+                
+        except Exception as e:
+            logger.error(f"Error processing query: {str(e)}")
+            return f"Error: {str(e)}"

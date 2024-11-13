@@ -5,7 +5,7 @@ services:
       context: ..
       dockerfile: docker/Dockerfile
     ports:
-      - "8000:8000"
+      - "8501:8501"
     volumes:
       - ..:/app
     depends_on:
@@ -19,14 +19,20 @@ services:
       - "host.docker.internal:host-gateway"
     command: >
       sh -c '
-      echo "Waiting 3 minutes for Ollama to initialize..." &&
-      for i in {180..1}; do
-        echo -ne "\rStarting in $$i seconds...   \r";
-        sleep 1;
+      echo "Waiting for Ollama to initialize..." &&
+      while ! curl -s http://ollama:11434/api/tags >/dev/null; do
+        sleep 1
       done &&
-      python -m src.main --interactive'
+      echo "Ollama is ready!" &&
+      ollama pull orca-mini &&
+      streamlit run src/app.py --server.address=0.0.0.0 --server.port=8501'
     stdin_open: true
     tty: true
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://ollama:11434/api/tags"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   qdrant:
     container_name: qdrant
