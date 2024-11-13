@@ -135,11 +135,8 @@ environment:
    - Adjust batch sizes
    - Monitor resource usage
 
-## 📝 License
+## 🤝 Special Thanks
+Akshay Pachaar, Avi Chawla on their tutorial [https://www.dailydoseofds.com/a-crash-course-on-building-rag-systems-part-1-with-implementations/](A Crash Course on Building RAG Systems – Part 1 (With Implementation))
 
-[Your License Here]
 
-## 🤝 Contributing
-
-[Your Contributing Guidelines]
 =======
